@@ -8,3 +8,15 @@ readme = "README.md"
 keywords = ["rig", "orchestration","agent"]
 
 [dependencies]
+dashmap = { version = "6.1.0", features = ["serde"] }
+futures = "0.3"
+petgraph = { version = "0.7.1", default-features = false, features = ["stable_graph"] }
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0"
+tokio = {version = "1.44", features = ["sync", "time"]}
+tracing = "0.1.41"
+uuid = { version = "1.16", features = ["v4", "serde"] }
+
+[dev-dependencies]
+mockall = "0.13.1"
+tokio = { version = "1.44", features = ["macros", "test-util"] }
