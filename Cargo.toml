@@ -14,7 +14,7 @@ futures = "0.3" # A library for asynchronous programming
 petgraph = { version = "0.7", default-features = false, features = [
     "stable_graph",
 ] } # A graph library
-rig-core = "*" # rig-core, we need keep it newest version
+rig-core = "0.10" # rig-core, we need keep it newest version
 rigs-macro = { version = "0.0.1", path = "./rigs-macro" }
 serde = { version = "1.0", features = [
     "derive",
