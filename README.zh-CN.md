@@ -29,7 +29,7 @@ graph TD
 
 ```toml
 [dependencies]
-rigs = "0.0.2"
+rigs = "0.0.4"
 ```
 
 ## 快速开始
