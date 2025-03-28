@@ -106,7 +106,7 @@ impl DAGWorkflow {
         Ok(edge_idx)
     }
 
-    /// Check if the workflow has a cycle
+    // Check if the workflow has a cycle
     fn has_cycle(&self) -> bool {
         // Implementation using DFS to detect cycles
         let mut visited = vec![false; self.workflow.node_count()];
@@ -546,17 +546,18 @@ impl DAGWorkflow {
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
 pub struct Flow {
-    // Optional transformation function to apply to the output before passing to the next agent
+    /// Optional transformation function to apply to the output before passing to the next agent
     pub transform: Option<Arc<dyn Fn(String) -> String + Send + Sync>>,
-    // Optional condition to determine if this flow should be taken
+    /// Optional condition to determine if this flow should be taken
     pub condition: Option<Arc<dyn Fn(&str) -> bool + Send + Sync>>,
 }
 
 /// Node weight for the graph
 #[derive(Debug)]
 pub struct AgentNode {
+    /// Name of the agent
     pub name: String,
-    // Cache for execution results
+    /// Cache for execution results
     pub last_result: Mutex<Option<Result<String, GraphWorkflowError>>>,
 }
 
