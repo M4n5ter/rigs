@@ -4,6 +4,7 @@ version = "0.0.1"
 edition = "2024"
 license = "MIT"
 description = "Rigs procedural macro"
+repository = "https://github.com/M4n5ter/rigs"
 
 [lib]
 proc-macro = true
