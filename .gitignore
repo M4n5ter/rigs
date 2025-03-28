@@ -1,3 +1,7 @@
 /target
-
+/temp
+/tmp
+.vscode
+.idea
 Cargo.lock
+.env
