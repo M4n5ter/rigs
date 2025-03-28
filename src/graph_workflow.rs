@@ -18,8 +18,8 @@ use crate::agent::Agent;
 
 /// The main orchestration structure
 pub struct DAGWorkflow {
-    name: String,
-    description: String,
+    pub name: String,
+    pub description: String,
     /// Store all registered agents
     agents: DashMap<String, Box<dyn Agent>>,
     /// The workflow graph
@@ -596,18 +596,6 @@ mod tests {
             fn run_multiple_tasks(&mut self, tasks: Vec<String>) -> BoxFuture<'static, Result<Vec<String>, AgentError>> {
                 Box::pin(future::ready(Ok(vec![])))
             }
-            fn plan(&self, task: String) -> BoxFuture<'static, Result<(), AgentError>> {
-                Box::pin(future::ready(Ok(())))
-            }
-            fn query_long_term_memory(&self, task: String) -> BoxFuture<'static, Result<(), AgentError>> {
-                Box::pin(future::ready(Ok(())))
-            }
-            fn save_task_state(&self, task: String) -> BoxFuture<'static, Result<(), AgentError>> {
-                Box::pin(future::ready(Ok(())))
-            }
-            fn is_response_complete(&self, response: String) -> bool {
-                true
-            }
             fn id(&self) -> String {
                 String::new()
             }
@@ -616,9 +604,6 @@ mod tests {
             }
             fn description(&self) -> String {
                 String::new()
-            }
-            fn clone_box(&self) -> Box<dyn Agent> {
-                panic!("clone_box not implemented for MockAgent")
             }
         }
     }
@@ -642,25 +627,11 @@ mod tests {
             Box::pin(future::ready(Ok(res)))
         });
 
-        agent.expect_is_response_complete().returning(|_| true);
-
         let response_str_clone = response_str.clone();
         agent.expect_run_multiple_tasks().returning(move |tasks| {
             let responses = tasks.iter().map(|_| response_str_clone.clone()).collect();
             Box::pin(future::ready(Ok(responses)))
         });
-
-        agent
-            .expect_plan()
-            .returning(|_| Box::pin(future::ready(Ok(()))));
-
-        agent
-            .expect_query_long_term_memory()
-            .returning(|_| Box::pin(future::ready(Ok(()))));
-
-        agent
-            .expect_save_task_state()
-            .returning(|_| Box::pin(future::ready(Ok(()))));
 
         agent
     }
@@ -684,8 +655,6 @@ mod tests {
             let err = AgentError::TestError(error_str_for_run.clone());
             Box::pin(future::ready(Err(err)))
         });
-
-        agent.expect_is_response_complete().returning(|_| false);
 
         agent.expect_run_multiple_tasks().returning(move |_| {
             let err = AgentError::TestError(error_str.clone());
@@ -1214,19 +1183,9 @@ mod tests {
             Box::pin(future::ready(Ok(format!("Called {} times", count))))
         });
 
-        agent.expect_is_response_complete().returning(|_| true);
         agent
             .expect_run_multiple_tasks()
             .returning(|_| Box::pin(future::ready(Ok(vec![]))));
-        agent
-            .expect_plan()
-            .returning(|_| Box::pin(future::ready(Ok(()))));
-        agent
-            .expect_query_long_term_memory()
-            .returning(|_| Box::pin(future::ready(Ok(()))));
-        agent
-            .expect_save_task_state()
-            .returning(|_| Box::pin(future::ready(Ok(()))));
 
         workflow.register_agent(agent);
 
@@ -1280,20 +1239,9 @@ mod tests {
             ))))
         });
 
-        agent1.expect_is_response_complete().returning(|_| true);
-
         agent1
             .expect_run_multiple_tasks()
             .returning(|_| Box::pin(future::ready(Ok(vec![]))));
-        agent1
-            .expect_plan()
-            .returning(|_| Box::pin(future::ready(Ok(()))));
-        agent1
-            .expect_query_long_term_memory()
-            .returning(|_| Box::pin(future::ready(Ok(()))));
-        agent1
-            .expect_save_task_state()
-            .returning(|_| Box::pin(future::ready(Ok(()))));
 
         workflow.register_agent(agent1);
 

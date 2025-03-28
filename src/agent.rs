@@ -1,14 +1,51 @@
 use futures::future::BoxFuture;
+use rig::{completion::PromptError, vector_store::VectorStoreError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use thiserror::Error;
 
+use crate::persistence::PersistenceError;
 
+pub trait Agent {
+    /// Runs the autonomous agent loop to complete the given task.
+    fn run(&self, task: String) -> BoxFuture<Result<String, AgentError>>;
+
+    /// Run multiple tasks concurrently
+    fn run_multiple_tasks(
+        &mut self,
+        tasks: Vec<String>,
+    ) -> BoxFuture<Result<Vec<String>, AgentError>>;
+
+    /// Get agent ID
+    fn id(&self) -> String;
+
+    /// Get agent name
+    fn name(&self) -> String;
+
+    /// Get agent description
+    fn description(&self) -> String;
+}
 
 #[derive(Debug, Error)]
 pub enum AgentError {
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
+    #[error("Agent prompt error: {0}")]
+    PromptError(#[from] PromptError),
+    #[error("Vector store error: {0}")]
+    VectorStoreError(#[from] VectorStoreError),
+    #[error("JSON error, detail: {detail}, source: {source}")]
+    JsonError {
+        detail: String,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error("Persistence error, detail: {detail}, source: {source}")]
+    PersistenceError {
+        detail: String,
+        #[source]
+        source: PersistenceError,
+    },
     #[cfg(test)]
     #[error("Test error: {0}")]
     TestError(String),
@@ -141,45 +178,5 @@ impl Default for AgentConfig {
             save_state_dir: None,
             stop_words: HashSet::new(),
         }
-    }
-}
-
-pub trait Agent: Send + Sync {
-    /// Runs the autonomous agent loop to complete the given task.
-    fn run(&self, task: String) -> BoxFuture<Result<String, AgentError>>;
-
-    /// Run multiple tasks concurrently
-    fn run_multiple_tasks(
-        &mut self,
-        tasks: Vec<String>,
-    ) -> BoxFuture<Result<Vec<String>, AgentError>>;
-
-    /// Plan the task and add it to short term memory
-    fn plan(&self, task: String) -> BoxFuture<Result<(), AgentError>>;
-
-    /// Query long term memory and add the results to short term memory
-    fn query_long_term_memory(&self, task: String) -> BoxFuture<Result<(), AgentError>>;
-
-    /// Save the agent state to a file
-    fn save_task_state(&self, task: String) -> BoxFuture<Result<(), AgentError>>;
-
-    /// Check a response to determine if it is complete
-    fn is_response_complete(&self, response: String) -> bool;
-
-    /// Get agent ID
-    fn id(&self) -> String;
-
-    /// Get agent name
-    fn name(&self) -> String;
-
-    /// Get agent description
-    fn description(&self) -> String;
-
-    fn clone_box(&self) -> Box<dyn Agent>;
-}
-
-impl Clone for Box<dyn Agent> {
-    fn clone(&self) -> Self {
-        self.clone_box()
     }
 }
