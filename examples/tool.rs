@@ -1,7 +1,6 @@
 use anyhow::Result;
 use rig::providers::deepseek;
-use rigs::{agent::Agent, rig_agent::RigAgent};
-use rigs_macro::tool;
+use rigs::{agent::Agent, rig_agent::RigAgent, tool};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

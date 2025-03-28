@@ -5,3 +5,5 @@ pub mod persistence;
 pub mod rig_agent;
 
 pub use rig;
+
+pub use rigs_macro::tool;
