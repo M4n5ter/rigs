@@ -29,7 +29,7 @@ Add the following to your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-rigs = "0.0.5"
+rigs = "0.0.6"
 ```
 
 ## Quick Start
