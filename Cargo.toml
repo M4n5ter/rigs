@@ -8,15 +8,15 @@ readme = "README.md"
 keywords = ["rig", "orchestration","agent"]
 
 [dependencies]
-dashmap = { version = "6.1.0", features = ["serde"] }
-futures = "0.3"
-petgraph = { version = "0.7.1", default-features = false, features = ["stable_graph"] }
-serde = { version = "1.0", features = ["derive"] }
-thiserror = "2.0"
-tokio = {version = "1.44", features = ["sync", "time"]}
-tracing = "0.1.41"
-uuid = { version = "1.16", features = ["v4", "serde"] }
+dashmap = { version = "6.1.0", features = ["serde"] } # A concurrent hashmap
+futures = "0.3" # A library for asynchronous programming
+petgraph = { version = "0.7", default-features = false, features = ["stable_graph"] } # A graph library
+serde = { version = "1.0", features = ["derive"] } # serialization and deserialization
+thiserror = "2.0" # Define custom error types
+tokio = {version = "1.44", features = ["sync", "time"]} # Asynchronous runtime
+tracing = "0.1" # Logging and tracing
+uuid = { version = "1.16", features = ["v4", "serde"] } # UUID
 
 [dev-dependencies]
-mockall = "0.13.1"
-tokio = { version = "1.44", features = ["macros", "test-util"] }
+mockall = "0.13" # Mocking library
+tokio = { version = "1.44", features = ["macros", "test-util"] } # tokio for testing
