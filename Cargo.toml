@@ -1,0 +1,10 @@
+[package]
+name = "rigs"
+version = "0.0.0"
+edition = "2024"
+description = "A orchestration framework for rig"
+license = "MIT"
+readme = "README.md"
+keywords = ["rig", "orchestration","agent"]
+
+[dependencies]
