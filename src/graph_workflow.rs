@@ -198,6 +198,16 @@ impl DAGWorkflow {
     }
 
     /// Execute the entire workflow starting from a specific agent
+    ///
+    /// # Arguments
+    ///
+    /// * `start_agent`: The name of the agent to start the workflow from
+    /// * `input`: The input to the workflow
+    ///
+    /// # Returns
+    ///
+    /// * `Result<DashMap<String, Result<String, GraphWorkflowError>>, GraphWorkflowError>`: A map of agent names to their results
+    ///
     pub async fn execute_workflow(
         &mut self,
         start_agent: &str,
