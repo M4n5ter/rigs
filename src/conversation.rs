@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     fmt::Display,
     path::{Path, PathBuf},
 };
@@ -11,23 +11,25 @@ use thiserror::Error;
 
 use crate::persistence::{self, PersistenceError};
 
-#[derive(Debug, Error)]
-pub enum ConversationError {
-    #[error("Json error: {0}")]
-    JsonError(#[from] serde_json::Error),
-    #[error("FilePersistence error: {0}")]
-    FilePersistenceError(#[from] PersistenceError),
-}
-
+/// A [AgentShortMemory] is a struct that stores multiple conversations.
+/// It is a map from `Task` to [Conversation]. `Task` is a string, usually the first message from the user.
 #[derive(Clone, Serialize)]
-pub struct AgentShortMemory(pub DashMap<Task, AgentConversation>);
-type Task = String;
+pub struct AgentShortMemory(pub DashMap<String, Conversation>);
 
 impl AgentShortMemory {
     pub fn new() -> Self {
         Self(DashMap::new())
     }
 
+    /// Add a [Conversation] to the agent short memory.
+    ///
+    /// # Arguments
+    ///
+    /// * `task` - The task that the conversation is for.
+    /// * `conversation` - The conversation to add.
+    /// * `conversation_owner` - The owner of the conversation.
+    /// * `role` - The role of the message, which will be added to the conversation.
+    /// * `message` - The message to add.
     pub fn add(
         &self,
         task: impl Into<String>,
@@ -38,7 +40,7 @@ impl AgentShortMemory {
         let mut conversation = self
             .0
             .entry(task.into())
-            .or_insert(AgentConversation::new(conversation_owner.into()));
+            .or_insert(Conversation::new(conversation_owner.into()));
         conversation.add(role, message.into())
     }
 }
@@ -49,14 +51,18 @@ impl Default for AgentShortMemory {
     }
 }
 
+/// A [Conversation] is a struct that stores a list of messages.
+/// This is an Agent's memory during a task. If other agents participate in the task,
+/// the conversation can also contain the messages from other agents.
+/// Because [Role] is not a string, it can be used to identify the sender of a message.
 #[derive(Clone, Serialize)]
-pub struct AgentConversation {
+pub struct Conversation {
     agent_name: String,
     save_filepath: Option<PathBuf>,
     pub history: Vec<Message>,
 }
 
-impl AgentConversation {
+impl Conversation {
     pub fn new(agent_name: String) -> Self {
         Self {
             agent_name,
@@ -112,6 +118,7 @@ impl AgentConversation {
         self.history.clear();
     }
 
+    /// Convert the conversation history to a JSON string.
     pub fn to_json(&self) -> Result<String, ConversationError> {
         Ok(serde_json::to_string(&self.history)?)
     }
@@ -123,14 +130,14 @@ impl AgentConversation {
         Ok(())
     }
 
-    /// Export the conversation history to a file
+    /// Export the conversation history to a file, the content of the file can be imported by `import_from_file`
     pub async fn export_to_file(&self, filepath: &Path) -> Result<(), ConversationError> {
         let data = self.to_string();
         persistence::save_to_file(data.as_bytes(), filepath).await?;
         Ok(())
     }
 
-    /// Import the conversation history from a file
+    /// Import the conversation history from a file, the content of the file should be exported by `export_to_file`
     pub async fn import_from_file(&mut self, filepath: &Path) -> Result<(), ConversationError> {
         let data = persistence::load_from_file(filepath).await?;
         let history = data
@@ -164,21 +171,22 @@ impl AgentConversation {
     }
 }
 
-impl Display for AgentConversation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for message in &self.history {
-            writeln!(f, "{}: {}", message.role, message.content)?;
-        }
-        Ok(())
-    }
+#[derive(Debug, Error)]
+pub enum ConversationError {
+    #[error("Json error: {0}")]
+    JsonError(#[from] serde_json::Error),
+    #[error("FilePersistence error: {0}")]
+    FilePersistenceError(#[from] PersistenceError),
 }
 
+/// A [Message] consists of a [Role] and a [Content].
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,
     pub content: Content,
 }
 
+/// A [Role] is a string that identifies the sender of a message.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Role {
     User(String),
@@ -188,6 +196,15 @@ pub enum Role {
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Content {
     Text(String),
+}
+
+impl Display for Conversation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for message in &self.history {
+            writeln!(f, "{}: {}", message.role, message.content)?;
+        }
+        Ok(())
+    }
 }
 
 impl Display for Role {
@@ -205,41 +222,4 @@ impl Display for Content {
             Content::Text(text) => f.pad(text),
         }
     }
-}
-
-#[derive(Serialize)]
-#[serde(rename = "history")]
-pub struct SwarmConversation {
-    pub logs: VecDeque<AgentLog>,
-}
-
-impl SwarmConversation {
-    pub fn new() -> Self {
-        Self {
-            logs: VecDeque::new(),
-        }
-    }
-
-    pub fn add_log(&mut self, agent_name: String, task: String, response: String) {
-        tracing::info!("Agent: {agent_name} | Task: {task} | Response: {response}");
-        let log = AgentLog {
-            agent_name,
-            task,
-            response,
-        };
-        self.logs.push_back(log);
-    }
-}
-
-impl Default for SwarmConversation {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[derive(Serialize)]
-pub struct AgentLog {
-    pub agent_name: String,
-    pub task: String,
-    pub response: String,
 }

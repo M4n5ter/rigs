@@ -72,12 +72,12 @@
 //!
 //! The [`conversation`] module provides tools for managing conversations between users and agents:
 //!
-//! * [`AgentConversation`] for tracking message history between a user and an agent.
+//! * [`Conversation`] for tracking message history between a user and an agent.
 //! * [`AgentShortMemory`] for storing multiple conversations across different tasks.
 //! * Message handling with [`Role`] and [`Content`] types.
 //!
 //! [`conversation`]: crate::conversation
-//! [`AgentConversation`]: crate::conversation::AgentConversation
+//! [`Conversation`]: crate::conversation::Conversation
 //! [`AgentShortMemory`]: crate::conversation::AgentShortMemory
 //! [`Role`]: crate::conversation::Role
 //! [`Content`]: crate::conversation::Content
@@ -85,10 +85,10 @@
 //! ### Example: Managing a Conversation
 //!
 //! ```rust
-//! use rigs::conversation::{AgentConversation, Role, Content};
+//! use rigs::conversation::{Conversation, Role, Content};
 //!
 //! // Create a new conversation with an agent
-//! let mut conversation = AgentConversation::new("MyAssistant".to_string());
+//! let mut conversation = Conversation::new("MyAssistant".to_string());
 //!
 //! // Add messages to the conversation
 //! conversation.add(Role::User("User".to_string()), "Hello, how are you?".to_string());

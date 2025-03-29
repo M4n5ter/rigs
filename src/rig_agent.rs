@@ -13,7 +13,7 @@ use twox_hash::XxHash3_64;
 
 use crate::{
     agent::{Agent, AgentConfig, AgentError},
-    conversation::{AgentConversation, AgentShortMemory, Role},
+    conversation::{AgentShortMemory, Conversation, Role},
     persistence,
 };
 
@@ -426,8 +426,8 @@ where
     }
 }
 
-impl From<&AgentConversation> for Vec<rig::message::Message> {
-    fn from(conv: &AgentConversation) -> Self {
+impl From<&Conversation> for Vec<rig::message::Message> {
+    fn from(conv: &Conversation) -> Self {
         conv.history
             .iter()
             .map(|msg| match &msg.role {
