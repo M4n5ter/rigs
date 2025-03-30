@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use rig::providers::deepseek;
 use rigs::agent::Agent;
 use rigs::graph_workflow::{DAGWorkflow, Flow};
+use rigs::llm_provider::LLMProvider;
 use rigs::rig_agent::RigAgent;
 
 #[tokio::main]
@@ -17,10 +17,10 @@ async fn main() -> Result<()> {
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let client = deepseek::Client::from_env();
-    let model = client.completion_model("deepseek-chat");
+    let provider = LLMProvider::deepseek("deepseek-chat");
 
-    let data_collection_agent = RigAgent::builder(model.clone())
+    let data_collection_agent = RigAgent::deepseek_builder()
+        .provider(provider.clone())?
         .agent_name("Data Collection Agent")
         .system_prompt(r#"
             You are a Data Collection Agent. Your primary function is to gather requested information from various sources.
@@ -40,9 +40,10 @@ async fn main() -> Result<()> {
         .temperature(0.1)
         .enable_autosave()
         .save_state_dir("./temp")
-        .build();
+        .build()?;
 
-    let data_processing_agent = RigAgent::builder(model.clone())
+    let data_processing_agent = RigAgent::deepseek_builder()
+        .provider(provider.clone())?
         .agent_name("Data Processing Agent")
         .user_name("M4n5ter")
         .system_prompt(r#"
@@ -74,9 +75,10 @@ async fn main() -> Result<()> {
         .enable_autosave()
         .temperature(0.1)
         .save_state_dir("./temp")
-        .build();
+        .build()?;
 
-    let content_summarization_agent = RigAgent::builder(model.clone())
+    let content_summarization_agent = RigAgent::deepseek_builder()
+        .provider(provider.clone())?
         .agent_name("Content Summarization Agent")
         .user_name("M4n5ter")
         .system_prompt(r#"
@@ -100,9 +102,10 @@ async fn main() -> Result<()> {
         .enable_autosave()
         .temperature(1.0)
         .save_state_dir("./temp")
-        .build();
+        .build()?;
 
-    let data_analysis_agent = RigAgent::builder(model.clone())
+    let data_analysis_agent = RigAgent::deepseek_builder()
+        .provider(provider.clone())?
         .agent_name("Data Analysis Agent")
         .user_name("M4n5ter")
         .system_prompt(r#"
@@ -134,9 +137,10 @@ async fn main() -> Result<()> {
         .enable_autosave()
         .temperature(0.1)
         .save_state_dir("./temp")
-        .build();
+        .build()?;
 
-    let content_enrichment_agent = RigAgent::builder(model.clone())
+    let content_enrichment_agent =RigAgent::deepseek_builder()
+        .provider(provider.clone())?
         .agent_name("Content Enrichment Agent")
         .user_name("M4n5ter")
         .system_prompt(r#"
@@ -168,9 +172,10 @@ async fn main() -> Result<()> {
         .enable_autosave()
         .temperature(0.1)
         .save_state_dir("./temp")
-        .build();
+        .build()?;
 
-    let implementation_strategy_agent = RigAgent::builder(model.clone())
+    let implementation_strategy_agent = RigAgent::deepseek_builder()
+        .provider(provider.clone())?
         .agent_name("Implementation Strategy Agent")
         .user_name("M4n5ter")
         .system_prompt(r#"
@@ -206,7 +211,7 @@ async fn main() -> Result<()> {
         .enable_autosave()
         .temperature(0.1)
         .save_state_dir("./temp")
-        .build();
+        .build()?;
 
     let mut workflow = DAGWorkflow::new("Graph Swarm", "A graph swarm workflow");
 
@@ -220,7 +225,7 @@ async fn main() -> Result<()> {
         implementation_strategy_agent.clone(),
     ]
     .into_iter()
-    .map(|a| Box::new(a) as _)
+    .map(Arc::new)
     .for_each(|a| workflow.register_agent(a));
 
     // connect agents
@@ -302,7 +307,7 @@ async fn main() -> Result<()> {
     // Execute the workflow
     let results = workflow
         .execute_workflow(
-            &data_collection_agent.name(),
+            &[&data_collection_agent.name()],
             "How to build a graph database?",
         )
         .await

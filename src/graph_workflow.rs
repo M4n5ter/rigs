@@ -21,7 +21,7 @@ pub struct DAGWorkflow {
     pub name: String,
     pub description: String,
     /// Store all registered agents
-    agents: DashMap<String, Box<dyn Agent>>,
+    agents: DashMap<String, Arc<dyn Agent>>,
     /// The workflow graph
     workflow: StableGraph<AgentNode, Flow>,
     /// Map from agent name to node index for quick lookup
@@ -41,7 +41,7 @@ impl DAGWorkflow {
     }
 
     /// Register an agent with the orchestrator
-    pub fn register_agent(&mut self, agent: Box<dyn Agent>) {
+    pub fn register_agent(&mut self, agent: Arc<dyn Agent>) {
         let agent_name = agent.name();
         self.agents.insert(agent_name.clone(), agent);
 
@@ -210,14 +210,25 @@ impl DAGWorkflow {
     ///
     pub async fn execute_workflow(
         &mut self,
-        start_agent: &str,
+        start_agents: &[&str],
         input: impl Into<String>,
     ) -> Result<DashMap<String, Result<String, GraphWorkflowError>>, GraphWorkflowError> {
         let input = input.into();
 
-        let start_idx = self.name_to_node.get(start_agent).ok_or_else(|| {
-            GraphWorkflowError::AgentNotFound(format!("Start agent '{}' not found", start_agent))
-        })?;
+        let start_indices = start_agents
+            .iter()
+            .map(|agent| {
+                self.name_to_node
+                    .get(*agent)
+                    .ok_or_else(|| {
+                        GraphWorkflowError::AgentNotFound(format!(
+                            "Start agent '{}' not found",
+                            agent
+                        ))
+                    })
+                    .copied()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         // Reset all results
         let node_idxs = self.workflow.node_indices().collect::<Vec<_>>();
@@ -234,14 +245,22 @@ impl DAGWorkflow {
         let edge_tracker = Arc::new(DashMap::new());
         let processed_nodes = Arc::new(DashMap::new());
         // Execute the workflow
-        self.execute_node(
-            *start_idx,
-            input,
-            Arc::clone(&results),
-            edge_tracker,
-            processed_nodes,
-        )
-        .await?;
+        let mut tasks = Vec::new();
+        for &start_idx in &start_indices {
+            let task = self.execute_node(
+                start_idx,
+                input.clone(),
+                Arc::clone(&results),
+                edge_tracker.clone(),
+                processed_nodes.clone(),
+            );
+            tasks.push(task);
+        }
+        futures::future::join_all(tasks)
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| GraphWorkflowError::ExecutionError(e.to_string()))?;
         Ok(Arc::into_inner(results).expect("Results should not be poisoned"))
     }
 
@@ -269,7 +288,7 @@ impl DAGWorkflow {
 
         // Execute the agent with timeout protection
         let result = tokio::time::timeout(
-            Duration::from_secs(300), // 5-minute timeout
+            Duration::from_secs(3600), // 60-minute timeout
             self.execute_agent(agent_name, input),
         )
         .await
@@ -288,15 +307,30 @@ impl DAGWorkflow {
         match &result {
             Ok(output) => {
                 // Find all outgoing edges that pass the condition (if any)
+                // Find all outgoing edges that pass the condition (if any)
                 let valid_edges = self
                     .workflow
                     .edges_directed(node_idx, Direction::Outgoing)
                     .filter(|edge| {
-                        edge.weight()
+                        // Evaluate condition with the current output
+                        let condition_result = edge
+                            .weight()
                             .condition
                             .as_ref()
-                            .map(|cond| cond(output))
-                            .unwrap_or(true) // if no condition, always execute
+                            .map(|cond| {
+                                // Apply condition to the current output
+                                let result = cond(output);
+                                tracing::debug!(
+                                    "Condition for edge {:?} -> {:?}: {}",
+                                    node_idx,
+                                    edge.target(),
+                                    result
+                                );
+                                result
+                            })
+                            .unwrap_or(true); // if no condition, always execute
+
+                        condition_result
                     })
                     .collect::<Vec<_>>();
 
@@ -320,35 +354,69 @@ impl DAGWorkflow {
                         // mark this edge as processed
                         edge_tracker_clone.insert((source_node, target_node), true);
 
-                        // record the input for this node
-                        processed_nodes_clone
-                            .entry(target_node)
-                            .or_default()
-                            .push((source_node, next_input));
+                        // record the input for this node with proper synchronization
+                        // Use a scope to ensure the lock is released after the operation
+                        {
+                            processed_nodes_clone
+                                .entry(target_node)
+                                .and_modify(|v| v.push((source_node, next_input.clone())))
+                                .or_insert_with(|| vec![(source_node, next_input.clone())]);
+                        }
 
-                        // check if all incoming edges have been processed
-                        // if yes, then we can execute the target node
-                        let incoming_edges = self
+                        // Get all input edges (including those from different starting nodes)
+                        let all_incoming_edges = self
                             .workflow
                             .edges_directed(target_node, Direction::Incoming)
                             .map(|e| (e.source(), target_node))
                             .collect::<Vec<_>>();
 
-                        let all_processed = incoming_edges
-                            .iter()
-                            .all(|edge| edge_tracker_clone.contains_key(edge));
+                        // Check that all input edges have completed processing (from different paths).
+                        let all_processed = all_incoming_edges.iter().all(|edge| {
+                            let processed = edge_tracker_clone.contains_key(edge);
+                            tracing::debug!("Edge {:?} processed: {}", edge, processed);
+                            processed
+                        });
 
                         // only execute if all incoming edges have been processed
                         if all_processed {
-                            let mut aggregated_input = String::new();
-                            if let Some(inputs) = processed_nodes_clone.get(&target_node) {
-                                for (source_idx, input) in inputs.value() {
-                                    let source_name =
-                                        &self.workflow.node_weight(*source_idx).unwrap().name;
-                                    aggregated_input
-                                        .push_str(&format!("[From {}] {}\n", source_name, input));
-                                }
-                            }
+                            // Aggregate all inputs from different paths
+                            let aggregated_input = processed_nodes_clone
+                                .get(&target_node)
+                                .map(|inputs| {
+                                    // Sort inputs by source node to ensure consistent ordering
+                                    let mut sorted_inputs = inputs.value().clone();
+                                    sorted_inputs.sort_by_key(|(source_idx, _)| *source_idx);
+
+                                    // Log the number of inputs for debugging
+                                    tracing::debug!(
+                                        "Node {:?} has {} inputs",
+                                        target_node,
+                                        sorted_inputs.len()
+                                    );
+
+                                    // Format each input with its source agent name
+                                    let formatted_inputs = sorted_inputs
+                                        .iter()
+                                        .map(|(source_idx, input)| {
+                                            let source_name = &self
+                                                .workflow
+                                                .node_weight(*source_idx)
+                                                .unwrap()
+                                                .name;
+                                            format!("[From {}] {}", source_name, input)
+                                        })
+                                        .collect::<Vec<_>>();
+
+                                    // Join all inputs with a clear separator
+                                    let result = formatted_inputs.join("\n\n---\n\n");
+                                    tracing::debug!(
+                                        "Aggregated input for node {:?}: {}",
+                                        target_node,
+                                        result
+                                    );
+                                    result
+                                })
+                                .unwrap_or_default();
 
                             // execute the target node with the aggregated input
                             if let Err(e) = self
@@ -448,16 +516,30 @@ impl DAGWorkflow {
     /// Helper method to find all possible execution paths
     pub fn find_execution_paths(
         &self,
-        start_agent: &str,
+        start_agents: &[&str],
     ) -> Result<Vec<Vec<String>>, GraphWorkflowError> {
-        let start_idx = self.name_to_node.get(start_agent).ok_or_else(|| {
-            GraphWorkflowError::AgentNotFound(format!("Start agent '{}' not found", start_agent))
-        })?;
+        let start_indices = start_agents
+            .iter()
+            .map(|agent| {
+                self.name_to_node
+                    .get(*agent)
+                    .ok_or_else(|| {
+                        GraphWorkflowError::AgentNotFound(format!(
+                            "Start agent '{}' not found",
+                            agent
+                        ))
+                    })
+                    .copied()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         let mut paths = Vec::new();
         let mut current_path = Vec::new();
 
-        self.dfs_paths(*start_idx, &mut current_path, &mut paths);
+        for start_idx in &start_indices {
+            current_path.clear();
+            self.dfs_paths(*start_idx, &mut current_path, &mut paths);
+        }
 
         Ok(paths)
     }
@@ -579,6 +661,8 @@ pub enum GraphWorkflowError {
     AgentNotFound(String),
     #[error("Cycle detected in workflow")]
     CycleDetected,
+    #[error("Execution error: {0}")]
+    ExecutionError(String),
     #[error("Timeout executing agent: {0}")]
     Timeout(String),
     #[error("Deadlock detected in workflow execution")]
@@ -618,8 +702,8 @@ mod tests {
         }
     }
 
-    fn create_mock_agent(id: &str, name: &str, desc: &str, response: &str) -> Box<MockAgent> {
-        let mut agent = Box::new(MockAgent::new());
+    fn create_mock_agent(id: &str, name: &str, desc: &str, response: &str) -> Arc<MockAgent> {
+        let mut agent = MockAgent::new();
 
         let id_str = id.to_string();
         agent.expect_id().return_const(id_str);
@@ -643,11 +727,11 @@ mod tests {
             Box::pin(future::ready(Ok(responses)))
         });
 
-        agent
+        Arc::new(agent)
     }
 
-    fn create_failing_agent(id: &str, name: &str, error_msg: &str) -> Box<MockAgent> {
-        let mut agent = Box::new(MockAgent::new());
+    fn create_failing_agent(id: &str, name: &str, error_msg: &str) -> Arc<MockAgent> {
+        let mut agent = MockAgent::new();
 
         let id_str = id.to_string();
         agent.expect_id().return_const(id_str);
@@ -671,7 +755,7 @@ mod tests {
             Box::pin(future::ready(Err(err)))
         });
 
-        agent
+        Arc::new(agent)
     }
 
     #[test]
@@ -867,7 +951,10 @@ mod tests {
             .connect_agents("agent1", "agent2", Flow::default())
             .unwrap();
 
-        let results = workflow.execute_workflow("agent1", "input").await.unwrap();
+        let results = workflow
+            .execute_workflow(&["agent1"], "input")
+            .await
+            .unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(
             results.get("agent1").unwrap().as_ref().unwrap(),
@@ -893,7 +980,10 @@ mod tests {
             .connect_agents("agent1", "agent3", Flow::default())
             .unwrap();
 
-        let results = workflow.execute_workflow("agent1", "input").await.unwrap();
+        let results = workflow
+            .execute_workflow(&["agent1"], "input")
+            .await
+            .unwrap();
         assert_eq!(results.len(), 3);
         assert_eq!(
             results.get("agent1").unwrap().as_ref().unwrap(),
@@ -928,7 +1018,10 @@ mod tests {
 
         workflow.connect_agents("agent1", "agent2", flow).unwrap();
 
-        let results = workflow.execute_workflow("agent1", "input").await.unwrap();
+        let results = workflow
+            .execute_workflow(&["agent1"], "input")
+            .await
+            .unwrap();
         assert_eq!(results.len(), 2);
 
         let structure = workflow.get_workflow_structure();
@@ -957,7 +1050,10 @@ mod tests {
             )
             .unwrap();
 
-        let results = workflow.execute_workflow("agent1", "input").await.unwrap();
+        let results = workflow
+            .execute_workflow(&["agent1"], "input")
+            .await
+            .unwrap();
         assert_eq!(results.len(), 2);
         assert!(results.contains_key("agent1"));
         assert!(results.contains_key("agent2"));
@@ -987,7 +1083,10 @@ mod tests {
             )
             .unwrap();
 
-        let results = workflow.execute_workflow("agent1", "input").await.unwrap();
+        let results = workflow
+            .execute_workflow(&["agent1"], "input")
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert!(results.contains_key("agent1"));
         assert!(!results.contains_key("agent2"));
@@ -998,7 +1097,7 @@ mod tests {
         let mut workflow = DAGWorkflow::new("test", "Test workflow");
         workflow.register_agent(create_mock_agent("1", "agent1", "First agent", "response1"));
 
-        let result = workflow.execute_workflow("nonexistent", "input").await;
+        let result = workflow.execute_workflow(&["nonexistent"], "input").await;
         assert!(matches!(result, Err(GraphWorkflowError::AgentNotFound(_))));
     }
 
@@ -1017,7 +1116,10 @@ mod tests {
             .connect_agents("agent2", "agent3", Flow::default())
             .unwrap();
 
-        let results = workflow.execute_workflow("agent1", "input").await.unwrap();
+        let results = workflow
+            .execute_workflow(&["agent1"], "input")
+            .await
+            .unwrap();
         assert_eq!(results.len(), 2);
         assert!(results.contains_key("agent1"));
         assert!(results.contains_key("agent2"));
@@ -1025,6 +1127,102 @@ mod tests {
 
         let agent2_result = results.get("agent2").unwrap();
         assert!(agent2_result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_independent_multiple_starts() {
+        let mut workflow = DAGWorkflow::new("test", "");
+
+        let agent_a = create_mock_agent("1", "A", "A", "A_result");
+        let agent_b = create_mock_agent("2", "B", "B", "B_result");
+        let agent_c = create_mock_agent("3", "C", "C", "C_result");
+        let agent_d = create_mock_agent("4", "D", "D", "D_result");
+
+        workflow.register_agent(agent_a.clone());
+        workflow.register_agent(agent_b.clone());
+        workflow.register_agent(agent_c.clone());
+        workflow.register_agent(agent_d.clone());
+
+        workflow.connect_agents("A", "C", Flow::default()).unwrap();
+        workflow.connect_agents("B", "D", Flow::default()).unwrap();
+
+        let results = workflow
+            .execute_workflow(&["A", "B"], "input")
+            .await
+            .unwrap();
+
+        assert_eq!(results.get("A").unwrap().as_ref().unwrap(), "A_result");
+        assert_eq!(results.get("B").unwrap().as_ref().unwrap(), "B_result");
+        assert_eq!(results.get("C").unwrap().as_ref().unwrap(), "C_result");
+        assert_eq!(results.get("D").unwrap().as_ref().unwrap(), "D_result");
+    }
+
+    #[tokio::test]
+    async fn test_converging_multiple_starts() {
+        let mut workflow = DAGWorkflow::new("test", "");
+
+        let agent_a = create_mock_agent("1", "A", "A", "A_result");
+        let agent_b = create_mock_agent("2", "B", "B", "B_result");
+        let agent_c = create_mock_agent("3", "C", "C", "C_result");
+
+        workflow.register_agent(agent_a.clone());
+        workflow.register_agent(agent_b.clone());
+        workflow.register_agent(agent_c.clone());
+
+        workflow.connect_agents("A", "C", Flow::default()).unwrap();
+        workflow.connect_agents("B", "C", Flow::default()).unwrap();
+
+        let _results = workflow
+            .execute_workflow(&["A", "B"], "input")
+            .await
+            .unwrap();
+
+        let c_node = workflow.name_to_node.get("C").unwrap();
+        let node_data = workflow.workflow.node_weight(*c_node).unwrap();
+        let last_result = node_data.last_result.lock().await;
+        assert!(last_result.is_some());
+        assert!(
+            last_result
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .contains("A_result")
+        );
+        assert!(
+            last_result
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .contains("B_result")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_conditional_branches() {
+        let mut workflow = DAGWorkflow::new("test", "");
+
+        let agent_a = create_mock_agent("1", "A", "A", "A_trigger");
+        let agent_b = create_mock_agent("2", "B", "B", "B_result");
+        let agent_c = create_mock_agent("3", "C", "C", "C_result");
+
+        workflow.register_agent(agent_a.clone());
+        workflow.register_agent(agent_b.clone());
+        workflow.register_agent(agent_c.clone());
+
+        let conditional_flow = Flow {
+            condition: Some(Arc::new(|output: &str| output.contains("trigger"))),
+            transform: None,
+        };
+
+        workflow.connect_agents("A", "B", conditional_flow).unwrap();
+        workflow.connect_agents("A", "C", Flow::default()).unwrap();
+
+        let results = workflow.execute_workflow(&["A"], "input").await.unwrap();
+
+        assert!(results.get("B").is_none());
+        assert_eq!(results.get("C").unwrap().as_ref().unwrap(), "C_result");
     }
 
     #[test]
@@ -1045,7 +1243,7 @@ mod tests {
         workflow.connect_agents("a", "c", Flow::default()).unwrap();
         workflow.connect_agents("b", "d", Flow::default()).unwrap();
 
-        let paths = workflow.find_execution_paths("start").unwrap();
+        let paths = workflow.find_execution_paths(&["start"]).unwrap();
         assert_eq!(paths.len(), 2);
 
         // path should be [start, a, c] or [start, b, d]
@@ -1064,7 +1262,7 @@ mod tests {
     fn test_find_execution_paths_start_agent_not_found() {
         let workflow = DAGWorkflow::new("test", "Test workflow");
 
-        let result = workflow.find_execution_paths("nonexistent");
+        let result = workflow.find_execution_paths(&["nonexistent"]);
         assert!(matches!(result, Err(GraphWorkflowError::AgentNotFound(_))));
     }
 
@@ -1091,7 +1289,7 @@ mod tests {
             .connect_agents("b", "end", Flow::default())
             .unwrap();
 
-        let paths = workflow.find_execution_paths("start").unwrap();
+        let paths = workflow.find_execution_paths(&["start"]).unwrap();
         assert_eq!(paths.len(), 2);
 
         // path should be [start, a, end] or [start, b, end]
@@ -1179,7 +1377,7 @@ mod tests {
         let mut workflow = DAGWorkflow::new("test", "Test workflow");
 
         // mock counter agent
-        let mut agent = Box::new(MockAgent::new());
+        let mut agent = MockAgent::new();
         let agent_name = "counter".to_string();
         agent.expect_name().return_const(agent_name.clone());
         agent.expect_id().return_const("1".to_string());
@@ -1197,11 +1395,11 @@ mod tests {
             .expect_run_multiple_tasks()
             .returning(|_| Box::pin(future::ready(Ok(vec![]))));
 
-        workflow.register_agent(agent);
+        workflow.register_agent(Arc::new(agent));
 
         // first execution
         let results1 = workflow
-            .execute_workflow("counter", "input1")
+            .execute_workflow(&["counter"], "input1")
             .await
             .unwrap();
         assert_eq!(
@@ -1211,7 +1409,7 @@ mod tests {
 
         // second execution (should reset and call again)
         let results2 = workflow
-            .execute_workflow("counter", "input2")
+            .execute_workflow(&["counter"], "input2")
             .await
             .unwrap();
         assert_eq!(
@@ -1232,7 +1430,7 @@ mod tests {
         let mut workflow = DAGWorkflow::new("test", "Test workflow");
 
         // Create a mock agent that records the number of calls
-        let mut agent1 = Box::new(MockAgent::new());
+        let mut agent1 = MockAgent::new();
         agent1.expect_name().return_const("agent1".to_string());
         agent1.expect_id().return_const("1".to_string());
         agent1
@@ -1253,7 +1451,7 @@ mod tests {
             .expect_run_multiple_tasks()
             .returning(|_| Box::pin(future::ready(Ok(vec![]))));
 
-        workflow.register_agent(agent1);
+        workflow.register_agent(Arc::new(agent1));
 
         // Create a normal second proxy
         workflow.register_agent(create_mock_agent(

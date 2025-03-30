@@ -178,9 +178,27 @@
 pub mod agent;
 pub mod conversation;
 pub mod graph_workflow;
+pub mod llm_provider;
 pub mod persistence;
 pub mod rig_agent;
+pub mod team_workflow;
 
 pub use rig;
 
+use rig::providers::{anthropic, deepseek};
 pub use rigs_macro::tool;
+
+pub trait ProviderClient {
+    fn completion_model(&self, model: impl Into<String>) -> impl rig::completion::CompletionModel;
+}
+
+impl ProviderClient for deepseek::Client {
+    fn completion_model(&self, model: impl Into<String>) -> impl rig::completion::CompletionModel {
+        self.completion_model(model.into().as_str())
+    }
+}
+impl ProviderClient for anthropic::Client {
+    fn completion_model(&self, model: impl Into<String>) -> impl rig::completion::CompletionModel {
+        self.completion_model(model.into().as_str())
+    }
+}

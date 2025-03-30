@@ -46,6 +46,12 @@ pub enum AgentError {
         #[source]
         source: PersistenceError,
     },
+    #[error("Failed to build agent: {0}")]
+    BuildError(String),
+    #[error("LLM provider error: {0}")]
+    LLMProviderError(#[from] crate::llm_provider::LLMProviderError),
+    #[error("Agent builder not initialized, maybe you forgot to call `provider(..)`?")]
+    AgentBuilderNotInitialized,
     #[cfg(test)]
     #[error("Test error: {0}")]
     TestError(String),

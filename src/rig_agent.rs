@@ -5,8 +5,15 @@ use std::{
 };
 
 use futures::{StreamExt, future::BoxFuture, stream};
-use rig::completion::{Chat, Prompt};
-use rig::tool::Tool;
+use rig::{
+    agent::AgentBuilder,
+    providers::{anthropic, deepseek, gemini, openrouter},
+    tool::Tool,
+};
+use rig::{
+    completion::{Chat, Prompt},
+    providers::openai,
+};
 use serde::Serialize;
 use tokio::sync::mpsc;
 use twox_hash::XxHash3_64;
@@ -14,26 +21,21 @@ use twox_hash::XxHash3_64;
 use crate::{
     agent::{Agent, AgentConfig, AgentError},
     conversation::{AgentShortMemory, Conversation, Role},
+    llm_provider::LLMProvider,
     persistence,
 };
 
-pub struct RigAgentBuilder<M>
-where
-    M: rig::completion::CompletionModel,
-{
-    rig_agent_builder: rig::agent::AgentBuilder<M>,
+pub struct RigAgentBuilder<M: rig::completion::CompletionModel> {
+    agent_builder: Option<AgentBuilder<M>>,
     config: AgentConfig,
     system_prompt: Option<String>,
     long_term_memory: Option<Arc<dyn rig::vector_store::VectorStoreIndexDyn>>,
 }
 
-impl<M> RigAgentBuilder<M>
-where
-    M: rig::completion::CompletionModel,
-{
-    pub fn new_with_model(model: M) -> Self {
+impl<M: rig::completion::CompletionModel> RigAgentBuilder<M> {
+    pub fn new() -> Self {
         Self {
-            rig_agent_builder: rig::agent::AgentBuilder::new(model),
+            agent_builder: None,
             config: AgentConfig::default(),
             system_prompt: None,
             long_term_memory: None,
@@ -60,29 +62,36 @@ where
         self
     }
 
-    pub fn add_tool(mut self, tool: impl Tool + 'static) -> Self {
-        self.rig_agent_builder = self.rig_agent_builder.tool(tool);
-        self
+    pub fn tool(mut self, tool: impl Tool + 'static) -> Result<Self, AgentError> {
+        let Some(agent_builder) = self.agent_builder else {
+            return Err(AgentError::AgentBuilderNotInitialized);
+        };
+        self.agent_builder = Some(agent_builder.tool(tool));
+        Ok(self)
     }
 
-    pub fn build(self) -> RigAgent<M> {
-        let rig_agent = self
-            .rig_agent_builder
-            .preamble(
-                &self
-                    .system_prompt
-                    .unwrap_or("You are a helpful assistant.".to_owned()),
-            )
+    pub fn build(self) -> Result<RigAgent<impl rig::completion::CompletionModel>, AgentError> {
+        let Some(agent_builder) = self.agent_builder else {
+            return Err(AgentError::AgentBuilderNotInitialized);
+        };
+
+        let config = self.config.clone();
+        let short_memory = AgentShortMemory::new();
+        let long_term_memory = self.long_term_memory.clone();
+        let system_prompt = self.system_prompt.clone();
+
+        let rig_agent = agent_builder
+            .preamble(&system_prompt.unwrap_or("You are a helpful assistant.".to_owned()))
             .temperature(self.config.temperature)
             .max_tokens(self.config.max_tokens)
             .build();
 
-        RigAgent {
+        Ok(RigAgent {
             agent: Arc::new(rig_agent),
-            config: self.config,
-            short_memory: AgentShortMemory::new(),
-            long_term_memory: self.long_term_memory,
-        }
+            config,
+            short_memory,
+            long_term_memory,
+        })
     }
 
     // Configuration methods
@@ -155,6 +164,57 @@ where
     }
 }
 
+impl<M: rig::completion::CompletionModel> Default for RigAgentBuilder<M> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RigAgentBuilder<anthropic::completion::CompletionModel> {
+    pub fn provider(mut self, provider: LLMProvider) -> Result<Self, AgentError> {
+        let model_config = provider.get_config();
+        self.config.model_name = model_config.model.clone();
+        self.agent_builder = Some(provider.get_anthropic_agent_builder()?);
+        Ok(self)
+    }
+}
+
+impl RigAgentBuilder<deepseek::DeepSeekCompletionModel> {
+    pub fn provider(mut self, provider: LLMProvider) -> Result<Self, AgentError> {
+        let model_config = provider.get_config();
+        self.config.model_name = model_config.model.clone();
+        self.agent_builder = Some(provider.get_deep_seek_agent_builder()?);
+        Ok(self)
+    }
+}
+
+impl RigAgentBuilder<gemini::completion::CompletionModel> {
+    pub fn provider(mut self, provider: LLMProvider) -> Result<Self, AgentError> {
+        let model_config = provider.get_config();
+        self.config.model_name = model_config.model.clone();
+        self.agent_builder = Some(provider.get_gemini_agent_builder()?);
+        Ok(self)
+    }
+}
+
+impl RigAgentBuilder<openai::CompletionModel> {
+    pub fn provider(mut self, provider: LLMProvider) -> Result<Self, AgentError> {
+        let model_config = provider.get_config();
+        self.config.model_name = model_config.model.clone();
+        self.agent_builder = Some(provider.get_open_a_i_agent_builder()?);
+        Ok(self)
+    }
+}
+
+impl RigAgentBuilder<openrouter::CompletionModel> {
+    pub fn provider(mut self, provider: LLMProvider) -> Result<Self, AgentError> {
+        let model_config = provider.get_config();
+        self.config.model_name = model_config.model.clone();
+        self.agent_builder = Some(provider.get_open_router_agent_builder()?);
+        Ok(self)
+    }
+}
+
 /// Wrapper for rig's Agent
 #[derive(Clone, Serialize)]
 pub struct RigAgent<M>
@@ -169,15 +229,40 @@ where
     long_term_memory: Option<Arc<dyn rig::vector_store::VectorStoreIndexDyn>>,
 }
 
+impl RigAgent<anthropic::completion::CompletionModel> {
+    pub fn anthropic_builder() -> RigAgentBuilder<anthropic::completion::CompletionModel> {
+        RigAgentBuilder::new()
+    }
+}
+
+impl RigAgent<deepseek::DeepSeekCompletionModel> {
+    pub fn deepseek_builder() -> RigAgentBuilder<deepseek::DeepSeekCompletionModel> {
+        RigAgentBuilder::new()
+    }
+}
+
+impl RigAgent<gemini::completion::CompletionModel> {
+    pub fn gemini_builder() -> RigAgentBuilder<gemini::completion::CompletionModel> {
+        RigAgentBuilder::new()
+    }
+}
+
+impl RigAgent<openai::CompletionModel> {
+    pub fn openai_builder() -> RigAgentBuilder<openai::CompletionModel> {
+        RigAgentBuilder::new()
+    }
+}
+
+impl RigAgent<openrouter::CompletionModel> {
+    pub fn openrouter_builder() -> RigAgentBuilder<openrouter::CompletionModel> {
+        RigAgentBuilder::new()
+    }
+}
+
 impl<M> RigAgent<M>
 where
     M: rig::completion::CompletionModel,
 {
-    /// Get the builder
-    pub fn builder(model: M) -> RigAgentBuilder<M> {
-        RigAgentBuilder::new_with_model(model)
-    }
-
     /// Handle error in attempts
     async fn handle_error_in_attempts(&self, task: &str, error: AgentError, attempt: u32) {
         let err_msg = format!("Attempt {}, task: {}, failed: {}", attempt + 1, task, error);
@@ -221,7 +306,7 @@ where
                 self.short_memory.add(
                     task,
                     &self.config.name,
-                    Role::User("[RAG] Database".to_owned()),
+                    Role::Assistant("[RAG] Database".to_owned()),
                     memory_retrieval,
                 );
             }
@@ -279,26 +364,30 @@ where
 {
     fn run(&self, task: String) -> BoxFuture<Result<String, AgentError>> {
         Box::pin(async move {
-            // Add task to short memory
-            self.short_memory.add(
-                &task,
-                &self.config.name,
-                Role::User(self.config.user_name.clone()),
-                &task,
-            );
-
             // Plan
             if self.config.plan_enabled {
+                self.short_memory.add(
+                    &task,
+                    &self.config.name,
+                    Role::User(self.config.user_name.clone()),
+                    &task,
+                );
                 self.plan(task.clone()).await?;
             }
 
             // Query long term memory
             if self.long_term_memory.is_some() {
+                self.short_memory.add(
+                    &task,
+                    &self.config.name,
+                    Role::User(self.config.user_name.clone()),
+                    &task,
+                );
                 self.query_long_term_memory(task.clone()).await?;
             }
 
             // Save state
-            if self.config.autosave {
+            if self.config.autosave && !self.short_memory.0.is_empty() {
                 self.save_task_state(task.clone()).await?;
             }
 
@@ -307,7 +396,6 @@ where
             let mut all_responses = vec![];
             for _loop_count in 0..self.config.max_loops {
                 let mut success = false;
-                let task_prompt = self.short_memory.0.get(&task).unwrap().to_string(); // Safety: task is in short_memory
                 for attempt in 0..self.config.retry_attempts {
                     if success {
                         break;
@@ -315,14 +403,19 @@ where
 
                     if self.long_term_memory.is_some() && self.config.rag_every_loop {
                         // FIXME: if RAG success, but then LLM fails, then RAG is not removed and maybe causes issues
-                        if let Err(e) = self.query_long_term_memory(task_prompt.clone()).await {
+                        if let Err(e) = self.query_long_term_memory(task.clone()).await {
                             self.handle_error_in_attempts(&task, e, attempt).await;
                             continue;
                         };
                     }
 
                     // Generate response using LLM
-                    let history = (&(*self.short_memory.0.get(&task).unwrap())).into(); // Safety: task is in short_memory
+                    let history = (&(*self
+                        .short_memory
+                        .0
+                        .entry(task.clone())
+                        .or_insert(Conversation::new(self.name()))))
+                        .into();
                     last_response = match self.agent.chat(task.clone(), history).await {
                         Ok(response) => response,
                         Err(e) => {

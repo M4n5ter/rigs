@@ -1,6 +1,5 @@
 use anyhow::Result;
-use rig::providers::deepseek;
-use rigs::{agent::Agent, rig_agent::RigAgent, tool};
+use rigs::{agent::Agent, llm_provider::LLMProvider, rig_agent::RigAgent, tool};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -16,21 +15,20 @@ async fn main() -> Result<()> {
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let client = deepseek::Client::from_env();
-    let model = client.completion_model("deepseek-chat");
-
-    let agent = RigAgent::builder(model.clone())
+    let agent = RigAgent::deepseek_builder()
+        .provider(LLMProvider::deepseek("deepseek-chat"))?
         .system_prompt("You need to select the right tool to answer the question.")
         .agent_name("TestToolAgent")
         .user_name("M4n5ter")
         .enable_autosave()
         .max_loops(1)
         .save_state_dir("./temp")
-        .add_tool(SubTool)
-        .add_tool(Add) // or AddTool, Add is a pub static variable of AddTool
-        .add_tool(MultiplyTool)
-        .add_tool(Exec) // or ExecTool, Exec is a pub static variable of ExecTool
-        .build();
+        .tool(SubTool)?
+        .tool(Add)? // or AddTool, Add is a pub static variable of AddTool
+        .tool(MultiplyTool)?
+        .tool(Exec)? // or ExecTool, Exec is a pub static variable of ExecTool
+        ;
+    let agent = agent.build()?;
 
     let mut result = agent.run("10 - 5".into()).await.unwrap();
     println!("{result}");
