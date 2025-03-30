@@ -46,7 +46,7 @@
 //! ```rust
 //! use rigs::agent::{Agent, AgentConfig};
 //! use rigs::rig_agent::RigAgentBuilder;
-//! use rig::providers::deepseek;
+//! use rigs::llm_provider::LLMProvider;
 //!
 //! // Create a configuration for our agent
 //! let config = AgentConfig::builder()
@@ -57,15 +57,16 @@
 //!     .max_tokens(2048)
 //!     .build();
 //!
-//! // Create an DeepSeek model (requires API key: DEEPSEEK_API_KEY env variable)
-//! let client = deepseek::Client::from_env();
-//! let model = client.completion_model("deepseek-chat");
+//! // Create a provider for the model
+//! let provider = LLMProvider::deepseek("deepseek-chat");
 //!
 //! // Build the agent with the configuration
-//! let agent = RigAgentBuilder::new_with_model(model)
-//!     .config(config)
+//! let agent = RigAgent::deepseek_builder()
+//!     .provider(provider)?
+//!     .agent_name("MyAssistant")
+//!     .user_name("User")
 //!     .system_prompt("You are a helpful assistant.")
-//!     .build();
+//!     .build()?;
 //! ```
 //!
 //! ## Handling Conversations
@@ -104,7 +105,7 @@
 //!
 //! * [`DAGWorkflow`] for defining directed acyclic graphs of agent interactions.
 //! * Tools for connecting agents and defining the flow of information between them.
-//! * Execution engines for running workflows synchronously or asynchronously.
+//! * Execution engines for running workflows with multiple starting agents.
 //!
 //! [`graph_workflow`]: crate::graph_workflow
 //! [`DAGWorkflow`]: crate::graph_workflow::DAGWorkflow
@@ -112,6 +113,7 @@
 //! ### Example: Creating a Simple Workflow
 //!
 //! ```rust
+//! use std::sync::Arc;
 //! use rigs::graph_workflow::{DAGWorkflow, Flow};
 //! use rigs::agent::Agent;
 //!
@@ -119,12 +121,20 @@
 //! let mut workflow = DAGWorkflow::new("MyWorkflow", "A simple workflow example");
 //!
 //! // Register agents with the workflow
-//! workflow.register_agent(Box::new(agent1));
-//! workflow.register_agent(Box::new(agent2));
+//! workflow.register_agent(Arc::new(agent1));
+//! workflow.register_agent(Arc::new(agent2));
+//! workflow.register_agent(Arc::new(agent3));
 //!
 //! // Connect agents in the workflow
 //! workflow.connect_agents("agent1", "agent2", Flow::default())
 //!     .expect("Failed to connect agents");
+//! workflow.connect_agents("agent1", "agent3", Flow::default())
+//!     .expect("Failed to connect agents");
+//!
+//! // Execute the workflow with multiple starting agents
+//! let results = workflow.execute_workflow(&["agent1"], "Initial input")
+//!     .await
+//!     .expect("Failed to execute workflow");
 //! ```
 //!
 //! ## Data Persistence
@@ -172,6 +182,17 @@
 //! [`rig_agent`]: crate::rig_agent
 //! [`RigAgent`]: crate::rig_agent::RigAgent
 //! [`RigAgentBuilder`]: crate::rig_agent::RigAgentBuilder
+//!
+//! ## Team Workflows
+//!
+//! The [`team_workflow`] module provides a higher-level abstraction for creating team-based workflows:
+//!
+//! * [`TeamWorkflow`] for defining team-based workflows with a leader agent.
+//! * Model registry for managing different LLM models.
+//! * Orchestration tools for dynamically creating and connecting agents.
+//!
+//! [`team_workflow`]: crate::team_workflow
+//! [`TeamWorkflow`]: crate::team_workflow::TeamWorkflow
 //!
 //! For more examples, see the examples/ directory in the repository.
 //!

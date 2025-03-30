@@ -19,9 +19,11 @@ graph TD
 - **基于图的工作流**: 使用有向无环图（DAG）定义智能体之间的工作流和数据流
 - **条件流转换**: 支持条件流转换和数据转换
 - **多智能体协作**: 轻松连接多个专门的智能体，形成强大的智能体网络
+- **多起始智能体**: 支持从多个入口点执行工作流
 - **持久化支持**: 内置对话和状态持久化功能
 - **可视化导出**: 将工作流导出为Graphviz DOT格式以进行可视化
 - **灵活的智能体配置**: 通过构建器模式轻松配置智能体参数
+- **团队工作流**: 基于团队的工作流高级抽象，支持领导者智能体
 
 ## 安装
 
@@ -40,9 +42,9 @@ rigs = "0.0.7"
 use std::sync::Arc;
 
 use anyhow::Result;
-use rig::providers::deepseek;
 use rigs::agent::Agent;
 use rigs::graph_workflow::{DAGWorkflow, Flow};
+use rigs::llm_provider::LLMProvider;
 use rigs::rig_agent::RigAgent;
 
 #[tokio::main]
@@ -56,10 +58,10 @@ async fn main() -> Result<()> {
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let client = deepseek::Client::from_env();
-    let model = client.completion_model("deepseek-chat");
+    let provider = LLMProvider::deepseek("deepseek-chat");
 
-    let data_collection_agent = RigAgent::builder(model.clone())
+    let data_collection_agent = RigAgent::deepseek_builder()
+        .provider(provider.clone())?
         .agent_name("数据收集智能体")
         .system_prompt(r#"
             您是一个数据收集智能体。您的主要功能是从各种来源收集所需的信息。
@@ -79,9 +81,10 @@ async fn main() -> Result<()> {
         .temperature(0.1)
         .enable_autosave()
         .save_state_dir("./temp")
-        .build();
+        .build()?;
 
-    let data_processing_agent = RigAgent::builder(model.clone())
+    let data_processing_agent = RigAgent::deepseek_builder()
+        .provider(provider.clone())?
         .agent_name("数据处理智能体")
         .user_name("M4n5ter")
         .system_prompt(r#"
@@ -113,9 +116,10 @@ async fn main() -> Result<()> {
         .enable_autosave()
         .temperature(0.1)
         .save_state_dir("./temp")
-        .build();
+        .build()?;
 
-    let content_summarization_agent = RigAgent::builder(model.clone())
+    let content_summarization_agent = RigAgent::deepseek_builder()
+        .provider(provider.clone())?
         .agent_name("内容摘要智能体")
         .user_name("M4n5ter")
         .system_prompt(r#"
@@ -139,135 +143,23 @@ async fn main() -> Result<()> {
         .enable_autosave()
         .temperature(1.0)
         .save_state_dir("./temp")
-        .build();
+        .build()?;
 
-    let data_analysis_agent = RigAgent::builder(model.clone())
-        .agent_name("数据分析智能体")
-        .user_name("M4n5ter")
-        .system_prompt(r#"
-            您是一个数据分析智能体。您的目的是分析处理后的数据以提取可操作的见解并识别模式。
-
-            当收到处理后的数据时，您将：
-            1. 执行统计分析以识别趋势、相关性和异常
-            2. 比较和对比数据的不同部分
-            3. 识别关键绩效指标和感兴趣的指标
-            4. 根据数据模式提出假设
-            5. 得出结论并提出数据驱动的建议
-
-            您的分析应包括：
-            - 最重要的发现摘要
-            - 解释相关性的定量指标
-            - 可视化描述（说明您的观点的图表/图形）
-            - 数据中的潜在因果关系
-            - 基于您的分析的可操作建议
-
-            使用以下部分格式化您的响应：
-            - "主要发现：" - 3-5个主要见解的项目符号列表
-            - "详细分析：" - 您的全面分析及支持证据
-            - "建议：" - 基于数据的具体、可操作的建议
-            - "置信度：" - 对您分析置信度的评估（高/中/低）及解释
-
-            适当时始终提及数据或分析的局限性。对数字要精确，避免过度概括。在进行比较时，提供适当的上下文。
-            以"ANALYSIS_COMPLETE"结束，表示您已完成分析。
-        "#)
-        .enable_autosave()
-        .temperature(0.1)
-        .save_state_dir("./temp")
-        .build();
-
-    let content_enrichment_agent = RigAgent::builder(model.clone())
-        .agent_name("内容增强智能体")
-        .user_name("M4n5ter")
-        .system_prompt(r#"
-            您是一个内容增强智能体。您的目的是通过附加的上下文、示例和支持信息来增强内容。
-
-            当收到要增强的内容时，您将：
-            1. 识别可以从附加上下文中受益的关键概念、术语和主张
-            2. 添加相关的示例、案例研究或实际应用
-            3. 在适当时提供历史背景或背景信息
-            4. 包括支持证据、统计数据或专家意见
-            5. 插入相关的类比或比喻以简化复杂的概念
-            6. 添加相关主题或概念的交叉引用
-
-            您的增强内容应：
-            - 保持源内容的原始含义和意图
-            - 通过上下文信息增加价值，而不仅仅是增加字数
-            - 为任何附加事实、引用或统计数据包括适当的归属
-            - 使用清晰的部分标题和逻辑流程组织良好
-            - 突出增强部分以区别于原始内容
-
-            按以下格式格式化您的响应：
-            1. 以"ENRICHED CONTENT FOLLOWS:"开始
-            2. 使用[ENRICHMENT: 您添加的内容]清晰地标记新信息
-            3. 在每个主要增强之后，简要解释您的理由为[RATIONALE: 解释]
-            4. 以"ENRICHMENT_COMPLETE"结束
-
-            在所有增强中力求准确和相关。您的目标是使内容更有价值、信息更丰富且更具吸引力，而不改变其核心信息。
-        "#)
-        .enable_autosave()
-        .temperature(0.1)
-        .save_state_dir("./temp")
-        .build();
-
-    let implementation_strategy_agent = RigAgent::builder(model.clone())
-        .agent_name("实施策略智能体")
-        .user_name("M4n5ter")
-        .system_prompt(r#"
-            您是一个实施策略智能体。您的目的是将理论信息和概念转化为实际的实施计划。
-
-            当收到关于概念、技术或方法论的信息时，您将：
-            1. 制定具有明确里程碑的分阶段实施路线图
-            2. 识别所需的资源、技能和技术
-            3. 概述潜在的挑战和缓解策略
-            4. 提供每个实施阶段的时间估计
-            5. 建议衡量实施成功的指标
-            6. 创建具体行动项的清单
-
-            您的实施策略应包括：
-            - "执行摘要：" - 实施方法的简要概述（2-3句话）
-            - "实施阶段：" - 每个阶段的详细分解，包括：
-            * 明确的目标
-            * 所需的行动
-            * 估计的时间框架
-            * 交付物
-            * 依赖项
-            - "资源需求：" - 人员、技术、预算考虑
-            - "风险评估：" - 潜在的障碍和缓解计划
-            - "成功指标：" - 评估实施有效性的KPI
-            - "行动项：" - 具体的、可分配的任务以开始实施
-
-            使用清晰的部分和子部分格式化您的响应。在适当时使用项目符号列表和表格进行比较。
-
-            始终考虑组织约束，并提供理想和最小可行的实施选项。在可能的情况下建议开源或低成本替代方案。
-            以"IMPLEMENTATION_STRATEGY_COMPLETE"结束，表示您已完成计划。
-        "#)
-        .enable_autosave()
-        .temperature(0.1)
-        .save_state_dir("./temp")
-        .build();
-
-    let mut workflow = DAGWorkflow::new("Graph Swarm", "一个图群工作流");
+    let mut workflow = DAGWorkflow::new("Graph Swarm", "A graph swarm workflow");
 
     // 注册智能体
     vec![
         data_collection_agent.clone(),
         data_processing_agent.clone(),
         content_summarization_agent.clone(),
-        data_analysis_agent.clone(),
-        content_enrichment_agent.clone(),
-        implementation_strategy_agent.clone(),
     ]
     .into_iter()
-    .map(|a| Box::new(a) as _)
+    .map(Arc::new)
     .for_each(|a| workflow.register_agent(a));
 
     // 连接智能体
     // 数据收集智能体 -> 数据处理智能体
     // 数据收集智能体 -> 内容摘要智能体
-    // 数据收集智能体 -> 内容增强智能体
-    // 数据处理智能体 -> 数据分析智能体
-    // 内容摘要智能体 -> 数据分析智能体
-    // 内容增强智能体 -> 实施策略智能体
     let _edge_idx1 = workflow
         .connect_agents(
             &data_collection_agent.name(),
@@ -276,14 +168,14 @@ async fn main() -> Result<()> {
         )
         .unwrap();
 
-    // 添加带有转换的条件流
+    // 添加带有条件的流和转换
     let conditional_flow = Flow {
-        // 添加自定义转换函数，这将改变上一个智能体的输出
-        // 为新格式，将用作下一个智能体的输入。
-        transform: Some(Arc::new(|output| format!("摘要请求：{}", output))),
-        // 添加条件，仅当上一个智能体的输出
-        // 长度大于100个字符时触发下一个智能体。如果条件未满足，工作流将继续
-        // 到图中的下一个智能体。这在输入太短时避免昂贵的计算非常有用。
+        // 添加自定义转换函数，这将改变前一个智能体的输出
+        // 为下一个智能体的输入使用的新格式。
+        transform: Some(Arc::new(|output| format!("摘要请求: {}", output))),
+        // 添加条件，只有当前一个智能体的输出长度大于100个字符时才触发下一个智能体。
+        // 如果条件不满足，工作流将继续到图中的下一个智能体。
+        // 这对于避免在输入太短时进行昂贵的计算很有用。
         condition: Some(Arc::new(|output| output.len() > 100)),
     };
     let _edge_idx2 = workflow
@@ -294,52 +186,20 @@ async fn main() -> Result<()> {
         )
         .unwrap();
 
-    let _edge_idx3 = workflow
-        .connect_agents(
-            &data_processing_agent.name(),
-            &data_analysis_agent.name(),
-            Flow::default(),
-        )
-        .unwrap();
-
-    let _edge_idx4 = workflow
-        .connect_agents(
-            &content_summarization_agent.name(),
-            &data_analysis_agent.name(),
-            Flow::default(),
-        )
-        .unwrap();
-
-    let _edge_idx5 = workflow
-        .connect_agents(
-            &data_collection_agent.name(),
-            &content_enrichment_agent.name(),
-            Flow::default(),
-        )
-        .unwrap();
-
-    let _edge_idx6 = workflow
-        .connect_agents(
-            &content_enrichment_agent.name(),
-            &implementation_strategy_agent.name(),
-            Flow::default(),
-        )
-        .unwrap();
-
+    // 获取工作流结构
     let worlflow_structure = workflow.get_workflow_structure();
     println!("{worlflow_structure:#?}");
 
-    // https://www.graphviz.org/about/
-    // 查看器：https://magjac.com/graphviz-visual-editor/
+    // 导出为Graphviz DOT格式以进行可视化
     let dot = workflow.export_workflow_dot();
     println!(
-        "https://www.graphviz.org/about/\ngraphviz dot格式：\n{dot}\n查看器：https://magjac.com/graphviz-visual-editor/"
+        "https://www.graphviz.org/about/\ngraphviz dot format: \n{dot}\nviewer: https://magjac.com/graphviz-visual-editor/"
     );
 
-    // 执行工作流
+    // 使用单个起始智能体执行工作流
     let results = workflow
         .execute_workflow(
-            &data_collection_agent.name(),
+            &[&data_collection_agent.name()],
             "如何构建图数据库？",
         )
         .await
@@ -348,10 +208,22 @@ async fn main() -> Result<()> {
     println!("{results:#?}");
     Ok(())
 }
-
 ```
 
 ## 高级用法
+
+### 多起始智能体
+
+```rust
+// 使用多个起始智能体执行工作流
+let results = workflow
+    .execute_workflow(
+        &[&agent1.name(), &agent2.name()],
+        "使用多种方法处理此输入",
+    )
+    .await
+    .unwrap();
+```
 
 ### 条件流和数据转换
 
@@ -359,8 +231,8 @@ async fn main() -> Result<()> {
 // 添加带有条件和转换的流
 let conditional_flow = Flow {
     // 添加自定义转换函数
-    transform: Some(Arc::new(|output| format!("转换后的输出：{}", output))),
-    // 添加条件，仅当上一个智能体的输出长度 > 100时触发下一个智能体
+    transform: Some(Arc::new(|output| format!("转换后的输出: {}", output))),
+    // 添加条件，只有当前一个智能体的输出长度大于100时才触发下一个智能体
     condition: Some(Arc::new(|output| output.len() > 100)),
 };
 
@@ -369,6 +241,45 @@ workflow.connect_agents(
     &agent2.name(),
     conditional_flow,
 ).unwrap();
+```
+
+### 团队工作流
+
+```rust
+use rigs::team_workflow::TeamWorkflow;
+use rigs::llm_provider::LLMProvider;
+
+// 创建团队工作流
+let mut team = TeamWorkflow::new("研究团队", "用于研究任务的团队");
+
+// 注册模型
+team.register_model(
+    "deepseek-chat",
+    LLMProvider::deepseek("deepseek-chat"),
+    ModelDescription {
+        name: "deepseek-chat".to_string(),
+        description: "通用模型".to_string(),
+        capabilities: vec!["推理".to_string(), "写作".to_string()],
+        context_window: 8192,
+        max_tokens: 2048,
+    },
+);
+
+// 获取领导者智能体的默认系统提示和编排工具
+let (default_system_prompt, default_tool) = team.default_leader_system_prompt_and_tool();
+
+// 设置领导者智能体，使用默认系统提示和编排工具
+let leader = RigAgent::deepseek_builder()
+    .provider(LLMProvider::deepseek("deepseek-chat"))?
+    .agent_name("团队领导")
+    .system_prompt(default_system_prompt)
+    .tool(default_tool)?
+    .build()?;
+
+team.set_leader(Arc::new(leader));
+
+// 执行团队工作流
+let results = team.execute("研究量子计算应用").await?;
 ```
 
 ### 工作流可视化
@@ -380,14 +291,16 @@ println!("{workflow_structure:#?}");
 
 // 导出为Graphviz DOT格式
 let dot = workflow.export_workflow_dot();
-println!("Graphviz DOT格式：\n{dot}");
+println!("Graphviz DOT格式: \n{dot}");
 // 在 https://magjac.com/graphviz-visual-editor/ 上可视化
 ```
 
 ## 示例
 
-请参阅 [examples](./examples) 目录以获取更多示例。
+查看[examples](./examples)目录获取更多示例。
 
 ## 许可证
 
-本项目采用 [MIT License](./LICENSE) 许可证。
+本项目采用[MIT许可证](./LICENSE)。
+
+---

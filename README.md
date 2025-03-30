@@ -19,9 +19,11 @@ graph TD
 - **Graph-based Workflow**: Define workflows and data flows between agents using Directed Acyclic Graphs (DAGs)
 - **Conditional Flow Transitions**: Support conditional flow transitions and data transformations
 - **Multi-Agent Collaboration**: Easily connect multiple specialized agents to form powerful agent networks
+- **Multiple Starting Agents**: Support for executing workflows with multiple entry points
 - **Persistence Support**: Built-in conversation and state persistence
 - **Visualization Export**: Export workflows to Graphviz DOT format for visualization
 - **Flexible Agent Configuration**: Easily configure agent parameters through the builder pattern
+- **Team Workflows**: Higher-level abstraction for team-based workflows with leader agents
 
 ## Installation
 
@@ -40,9 +42,9 @@ Here's a simple example showing how to create and connect multiple agents:
 use std::sync::Arc;
 
 use anyhow::Result;
-use rig::providers::deepseek;
 use rigs::agent::Agent;
 use rigs::graph_workflow::{DAGWorkflow, Flow};
+use rigs::llm_provider::LLMProvider;
 use rigs::rig_agent::RigAgent;
 
 #[tokio::main]
@@ -56,10 +58,10 @@ async fn main() -> Result<()> {
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
-    let client = deepseek::Client::from_env();
-    let model = client.completion_model("deepseek-chat");
+    let provider = LLMProvider::deepseek("deepseek-chat");
 
-    let data_collection_agent = RigAgent::builder(model.clone())
+    let data_collection_agent = RigAgent::deepseek_builder()
+        .provider(provider.clone())?
         .agent_name("Data Collection Agent")
         .system_prompt(r#"
             You are a Data Collection Agent. Your primary function is to gather requested information from various sources.
@@ -79,9 +81,10 @@ async fn main() -> Result<()> {
         .temperature(0.1)
         .enable_autosave()
         .save_state_dir("./temp")
-        .build();
+        .build()?;
 
-    let data_processing_agent = RigAgent::builder(model.clone())
+    let data_processing_agent = RigAgent::deepseek_builder()
+        .provider(provider.clone())?
         .agent_name("Data Processing Agent")
         .user_name("M4n5ter")
         .system_prompt(r#"
@@ -113,9 +116,10 @@ async fn main() -> Result<()> {
         .enable_autosave()
         .temperature(0.1)
         .save_state_dir("./temp")
-        .build();
+        .build()?;
 
-    let content_summarization_agent = RigAgent::builder(model.clone())
+    let content_summarization_agent = RigAgent::deepseek_builder()
+        .provider(provider.clone())?
         .agent_name("Content Summarization Agent")
         .user_name("M4n5ter")
         .system_prompt(r#"
@@ -139,113 +143,7 @@ async fn main() -> Result<()> {
         .enable_autosave()
         .temperature(1.0)
         .save_state_dir("./temp")
-        .build();
-
-    let data_analysis_agent = RigAgent::builder(model.clone())
-        .agent_name("Data Analysis Agent")
-        .user_name("M4n5ter")
-        .system_prompt(r#"
-            You are a Data Analysis Agent. Your purpose is to analyze processed data to extract actionable insights and identify patterns.
-
-            When given processed data, you will:
-            1. Perform statistical analysis to identify trends, correlations, and anomalies
-            2. Compare and contrast different segments of the data
-            3. Identify key performance indicators and metrics of interest
-            4. Formulate hypotheses based on the data patterns
-            5. Draw conclusions and make data-driven recommendations
-
-            Your analysis should include:
-            - A summary of the most significant findings
-            - Quantitative metrics with their relevance explained
-            - Visual representation descriptions (charts/graphs that would illustrate your points)
-            - Potential causal relationships in the data
-            - Actionable recommendations based on your analysis
-
-            Format your response in clear sections with:
-            - "PRIMARY FINDINGS:" - A bulleted list of 3-5 major insights
-            - "DETAILED ANALYSIS:" - Your comprehensive analysis with supporting evidence
-            - "RECOMMENDATIONS:" - Specific, actionable suggestions based on the data
-            - "CONFIDENCE LEVEL:" - An assessment of your confidence in your analysis (High/Medium/Low) with explanation
-
-            Always mention limitations in the data or analysis when appropriate. Be precise with numbers and avoid overgeneralizing. When making comparisons, provide proper context.
-            End with "ANALYSIS_COMPLETE" to signal you have finished your analysis.
-        "#)
-        .enable_autosave()
-        .temperature(0.1)
-        .save_state_dir("./temp")
-        .build();
-
-    let content_enrichment_agent = RigAgent::builder(model.clone())
-        .agent_name("Content Enrichment Agent")
-        .user_name("M4n5ter")
-        .system_prompt(r#"
-            You are a Content Enrichment Agent. Your purpose is to enhance content with additional context, examples, and supporting information.
-
-            When given content to enrich, you will:
-            1. Identify key concepts, terms, and claims that could benefit from additional context
-            2. Add relevant examples, case studies, or real-world applications
-            3. Provide historical context or background information where appropriate
-            4. Include supporting evidence, statistics, or expert opinions
-            5. Insert relevant analogies or metaphors to simplify complex ideas
-            6. Add cross-references to related topics or concepts
-
-            Your enriched content should:
-            - Maintain the original meaning and intent of the source content
-            - Add value through contextual information, not merely increase word count
-            - Include proper attribution for any additional facts, quotes, or statistics
-            - Be well-organized with clear section headers and logical flow
-            - Highlight the enriched sections to distinguish them from original content
-
-            Format your response as follows:
-            1. Begin with "ENRICHED CONTENT FOLLOWS:" 
-            2. Present the enriched content with new information clearly marked using [ENRICHMENT: your added content]
-            3. After each major enrichment, briefly explain your rationale as [RATIONALE: explanation]
-            4. End with "ENRICHMENT_COMPLETE"
-
-            Strive for accuracy and relevance in all enrichments. Your goal is to make the content more valuable, informative, and engaging without changing its core message.
-        "#)
-        .enable_autosave()
-        .temperature(0.1)
-        .save_state_dir("./temp")
-        .build();
-
-    let implementation_strategy_agent = RigAgent::builder(model.clone())
-        .agent_name("Implementation Strategy Agent")
-        .user_name("M4n5ter")
-        .system_prompt(r#"
-            You are an Implementation Strategy Agent. Your purpose is to transform theoretical information and concepts into practical implementation plans.
-
-            When given information about a concept, technology, or methodology, you will:
-            1. Develop a phased implementation roadmap with clear milestones
-            2. Identify the required resources, skills, and technologies
-            3. Outline potential challenges and mitigation strategies
-            4. Provide time estimates for each implementation phase
-            5. Suggest metrics to measure implementation success
-            6. Create a checklist of specific action items
-
-            Your implementation strategy should include:
-            - "EXECUTIVE SUMMARY:" - A brief overview of the implementation approach (2-3 sentences)
-            - "IMPLEMENTATION PHASES:" - Detailed breakdown of each phase with:
-            * Clear objectives
-            * Required actions
-            * Estimated timeframes
-            * Deliverables
-            * Dependencies
-            - "RESOURCE REQUIREMENTS:" - Personnel, technology, budget considerations
-            - "RISK ASSESSMENT:" - Potential obstacles and mitigation plans
-            - "SUCCESS METRICS:" - KPIs to evaluate implementation effectiveness
-            - "ACTION ITEMS:" - Specific, assignable tasks to begin implementation
-
-            Format your response in a structured manner with clear headings and subheadings. Use bullet points for lists and tables for comparing options when appropriate.
-
-            Always consider organizational constraints and provide both ideal and minimal viable implementation options. Suggest open-source or low-cost alternatives where possible.
-
-            End with "IMPLEMENTATION_STRATEGY_COMPLETE" to signal you have finished your plan.
-        "#)
-        .enable_autosave()
-        .temperature(0.1)
-        .save_state_dir("./temp")
-        .build();
+        .build()?;
 
     let mut workflow = DAGWorkflow::new("Graph Swarm", "A graph swarm workflow");
 
@@ -254,21 +152,14 @@ async fn main() -> Result<()> {
         data_collection_agent.clone(),
         data_processing_agent.clone(),
         content_summarization_agent.clone(),
-        data_analysis_agent.clone(),
-        content_enrichment_agent.clone(),
-        implementation_strategy_agent.clone(),
     ]
     .into_iter()
-    .map(|a| Box::new(a) as _)
+    .map(Arc::new)
     .for_each(|a| workflow.register_agent(a));
 
     // connect agents
     // Data Collection Agent -> Data Processing Agent
     // Data Collection Agent -> Content Summarization Agent
-    // Data Collection Agent -> Content Enrichment Agent
-    // Data Processing Agent -> Data Analysis Agent
-    // Content Summarization Agent -> Data Analysis Agent
-    // Content Enrichment Agent -> Implementation Strategy Agent
     let _edge_idx1 = workflow
         .connect_agents(
             &data_collection_agent.name(),
@@ -296,52 +187,20 @@ async fn main() -> Result<()> {
         )
         .unwrap();
 
-    let _edge_idx3 = workflow
-        .connect_agents(
-            &data_processing_agent.name(),
-            &data_analysis_agent.name(),
-            Flow::default(),
-        )
-        .unwrap();
-
-    let _edge_idx4 = workflow
-        .connect_agents(
-            &content_summarization_agent.name(),
-            &data_analysis_agent.name(),
-            Flow::default(),
-        )
-        .unwrap();
-
-    let _edge_idx5 = workflow
-        .connect_agents(
-            &data_collection_agent.name(),
-            &content_enrichment_agent.name(),
-            Flow::default(),
-        )
-        .unwrap();
-
-    let _edge_idx6 = workflow
-        .connect_agents(
-            &content_enrichment_agent.name(),
-            &implementation_strategy_agent.name(),
-            Flow::default(),
-        )
-        .unwrap();
-
+    // Get workflow structure
     let worlflow_structure = workflow.get_workflow_structure();
     println!("{worlflow_structure:#?}");
 
-    // https://www.graphviz.org/about/
-    // viewer: https://magjac.com/graphviz-visual-editor/
+    // Export to Graphviz DOT format for visualization
     let dot = workflow.export_workflow_dot();
     println!(
         "https://www.graphviz.org/about/\ngraphviz dot format: \n{dot}\nviewer: https://magjac.com/graphviz-visual-editor/"
     );
 
-    // Execute the workflow
+    // Execute the workflow with a single starting agent
     let results = workflow
         .execute_workflow(
-            &data_collection_agent.name(),
+            &[&data_collection_agent.name()],
             "How to build a graph database?",
         )
         .await
@@ -350,10 +209,22 @@ async fn main() -> Result<()> {
     println!("{results:#?}");
     Ok(())
 }
-
 ```
 
 ## Advanced Usage
+
+### Multiple Starting Agents
+
+```rust
+// Execute workflow with multiple starting agents
+let results = workflow
+    .execute_workflow(
+        &[&agent1.name(), &agent2.name()],
+        "Process this input with multiple approaches",
+    )
+    .await
+    .unwrap();
+```
 
 ### Conditional Flows and Data Transformation
 
@@ -371,6 +242,45 @@ workflow.connect_agents(
     &agent2.name(),
     conditional_flow,
 ).unwrap();
+```
+
+### Team Workflows
+
+```rust
+use rigs::team_workflow::TeamWorkflow;
+use rigs::llm_provider::LLMProvider;
+
+// Create a team workflow
+let mut team = TeamWorkflow::new("Research Team", "A team for research tasks");
+
+// Register models
+team.register_model(
+    "deepseek-chat",
+    LLMProvider::deepseek("deepseek-chat"),
+    ModelDescription {
+        name: "deepseek-chat".to_string(),
+        description: "General purpose model".to_string(),
+        capabilities: vec!["reasoning".to_string(), "writing".to_string()],
+        context_window: 8192,
+        max_tokens: 2048,
+    },
+);
+
+// Get default system prompt and orchestration tool for the leader agent
+let (default_system_prompt, default_tool) = team.default_leader_system_prompt_and_tool();
+
+// Set leader agent with the default system prompt and orchestration tool
+let leader = RigAgent::deepseek_builder()
+    .provider(LLMProvider::deepseek("deepseek-chat"))?
+    .agent_name("Team Leader")
+    .system_prompt(default_system_prompt)
+    .tool(default_tool)?
+    .build()?;
+
+team.set_leader(Arc::new(leader));
+
+// Execute the team workflow
+let results = team.execute("Research quantum computing applications").await?;
 ```
 
 ### Workflow Visualization

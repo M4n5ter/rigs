@@ -2,6 +2,7 @@ use std::{
     hash::{Hash, Hasher},
     path::Path,
     sync::Arc,
+    vec,
 };
 
 use futures::{StreamExt, future::BoxFuture, stream};
@@ -364,25 +365,21 @@ where
 {
     fn run(&self, task: String) -> BoxFuture<Result<String, AgentError>> {
         Box::pin(async move {
+            // Add task to memory
+            self.short_memory.add(
+                &task,
+                &self.config.name,
+                Role::User(self.config.user_name.clone()),
+                task.clone(),
+            );
+
             // Plan
             if self.config.plan_enabled {
-                self.short_memory.add(
-                    &task,
-                    &self.config.name,
-                    Role::User(self.config.user_name.clone()),
-                    &task,
-                );
                 self.plan(task.clone()).await?;
             }
 
             // Query long term memory
             if self.long_term_memory.is_some() {
-                self.short_memory.add(
-                    &task,
-                    &self.config.name,
-                    Role::User(self.config.user_name.clone()),
-                    &task,
-                );
                 self.query_long_term_memory(task.clone()).await?;
             }
 
@@ -394,7 +391,7 @@ where
             // Run agent loop
             let mut last_response = String::new();
             let mut all_responses = vec![];
-            for _loop_count in 0..self.config.max_loops {
+            for loop_count in 0..self.config.max_loops {
                 let mut success = false;
                 for attempt in 0..self.config.retry_attempts {
                     if success {
@@ -410,12 +407,21 @@ where
                     }
 
                     // Generate response using LLM
-                    let history = (&(*self
+                    let mut history = (&(*self
                         .short_memory
                         .0
                         .entry(task.clone())
                         .or_insert(Conversation::new(self.name()))))
                         .into();
+
+                    // Since rig's agent requires concatenating prompt and chat_history,
+                    // this would cause the initial prompt to be duplicated.
+                    // Here we check if it's the first loop by verifying loop_count == 0
+                    // If it's the first loop, use empty chat_history
+                    if loop_count == 0 {
+                        history = vec![];
+                    }
+
                     last_response = match self.agent.chat(task.clone(), history).await {
                         Ok(response) => response,
                         Err(e) => {

@@ -24,17 +24,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // deepseek-reasoner doesn't support tools yet, and also doesn't support continuous output of the same role.
     let reasoning_model = LLMProvider::deepseek("deepseek-reasoner");
     let chat_model = LLMProvider::deepseek("deepseek-chat");
-    // team.register_model(
-    //     "reasoning",
-    //     reasoning_model,
-    //     ModelDescription {
-    //         name: "reasoning".to_string(),
-    //         description: "A model optimized for reasoning and planning".to_string(),
-    //         capabilities: vec!["reasoning".to_string(), "planning".to_string()],
-    //         context_window: 16000,
-    //         max_tokens: 4000,
-    //     },
-    // );
+    team.register_model(
+        "reasoning",
+        reasoning_model,
+        ModelDescription {
+            name: "reasoning".to_string(),
+            description: "A model optimized for reasoning and planning".to_string(),
+            capabilities: vec!["reasoning".to_string(), "planning".to_string()],
+            context_window: 16000,
+            max_tokens: 4000,
+        },
+    );
     team.register_model(
         "chat",
         chat_model,
@@ -51,6 +51,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (leader_model, _) = team.get_model("chat")?;
 
     // Build the leader agent
+    // IMPORTANT: default_system_prompt and default_tool must be set. If not set, team workflow won't work correctly.
     let (default_system_prompt, default_tool) = team.default_leader_system_prompt_and_tool();
     let leader = RigAgent::deepseek_builder()
         .provider(leader_model)?
