@@ -295,7 +295,7 @@ impl DAGWorkflow {
         .map_err(|_| GraphWorkflowError::Timeout(agent_name.clone()))?;
 
         // Store the result
-        results.entry(agent_name.clone()).or_insert(result.clone());
+        results.insert(agent_name.clone(), result.clone());
 
         // Update the node's last result
         if let Some(node_weight) = self.workflow.node_weight(node_idx) {
@@ -306,7 +306,6 @@ impl DAGWorkflow {
         // If successful, propagate to connected agents
         match &result {
             Ok(output) => {
-                // Find all outgoing edges that pass the condition (if any)
                 // Find all outgoing edges that pass the condition (if any)
                 let valid_edges = self
                     .workflow
@@ -371,10 +370,62 @@ impl DAGWorkflow {
                             .collect::<Vec<_>>();
 
                         // Check that all input edges have completed processing (from different paths).
+                        // For conditional flows, we need to check if the edge has a condition and if it evaluates to false
                         let all_processed = all_incoming_edges.iter().all(|edge| {
+                            // Check if this edge is already processed
                             let processed = edge_tracker_clone.contains_key(edge);
-                            tracing::debug!("Edge {:?} processed: {}", edge, processed);
-                            processed
+
+                            // If not processed, check if it has a condition that evaluates to false
+                            // In that case, we should consider it as "processed" (skipped)
+                            let conditionally_skipped = if !processed {
+                                if let Some(edge_idx) = self.workflow.find_edge(edge.0, edge.1) {
+                                    let edge_weight = self.workflow.edge_weight(edge_idx).unwrap();
+                                    if let Some(cond) = &edge_weight.condition {
+                                        // If we can find the source node's result, check the condition
+                                        if let Some(source_name) =
+                                            self.workflow.node_weight(edge.0).map(|n| &n.name)
+                                        {
+                                            if let Some(source_result) =
+                                                results_clone.get(source_name)
+                                            {
+                                                if let Ok(output) = source_result.as_ref() {
+                                                    // If condition is false, this edge is conditionally skipped
+                                                    let condition_result = !cond(output);
+                                                    if condition_result {
+                                                        // Mark this edge as processed (skipped due to condition)
+                                                        edge_tracker_clone
+                                                            .insert((edge.0, edge.1), true);
+                                                    }
+                                                    condition_result
+                                                } else {
+                                                    // Source node execution failed, consider edge as processed
+                                                    edge_tracker_clone
+                                                        .insert((edge.0, edge.1), true);
+                                                    true
+                                                }
+                                            } else {
+                                                false
+                                            }
+                                        } else {
+                                            false
+                                        }
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            };
+
+                            tracing::debug!(
+                                "Edge {:?} processed: {}, conditionally skipped: {}",
+                                edge,
+                                processed,
+                                conditionally_skipped
+                            );
+                            processed || conditionally_skipped
                         });
 
                         // only execute if all incoming edges have been processed
@@ -417,6 +468,11 @@ impl DAGWorkflow {
                                     result
                                 })
                                 .unwrap_or_default();
+
+                            tracing::debug!(
+                                "Executing node {:?} with aggregated input",
+                                target_node
+                            );
 
                             // execute the target node with the aggregated input
                             if let Err(e) = self
@@ -1157,6 +1213,7 @@ mod tests {
         assert_eq!(results.get("D").unwrap().as_ref().unwrap(), "D_result");
     }
 
+    /// FIXME: This test fails
     #[tokio::test]
     async fn test_converging_multiple_starts() {
         let mut workflow = DAGWorkflow::new("test", "");
@@ -1199,6 +1256,7 @@ mod tests {
         );
     }
 
+    /// FIXME: This test fails
     #[tokio::test]
     async fn test_conditional_branches() {
         let mut workflow = DAGWorkflow::new("test", "");
