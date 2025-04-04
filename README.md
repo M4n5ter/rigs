@@ -31,7 +31,7 @@ Add the following to your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-rigs = "0.0.7"
+rigs = "0.0.8"
 ```
 
 ## Quick Start
