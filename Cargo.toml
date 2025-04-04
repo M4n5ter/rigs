@@ -19,7 +19,7 @@ enum_glob_use = "warn"
 exit = "warn"
 filter_map_next = "warn"
 fn_params_excessive_bools = "warn"
-# https://github.com/rust-lang/rust/issues/131154
+# Stabilized: https://github.com/rust-lang/rust/issues/131154
 # if_let_mutex = "warn"
 imprecise_flops = "warn"
 inefficient_to_string = "warn"
