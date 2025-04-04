@@ -59,7 +59,7 @@ petgraph = { version = "0.7", default-features = false, features = [
     "stable_graph",
 ] } # A graph library
 rig-core = "0.11" # rig-core, we need keep it newest version
-rigs-macro = { version = "0.0.1", path = "./rigs-macro" }
+rigs-macro = { version = "0.0.2", path = "./rigs-macro" }
 schemars = "1.0.0-alpha.17" # Serialize Rust data structures to JSON Schema
 serde = { version = "1.0", features = [
     "derive",
