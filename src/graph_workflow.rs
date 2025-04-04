@@ -1,3 +1,7 @@
+//! Graph workflow implementation
+//!
+#![deny(missing_docs)]
+
 use std::{
     collections::{HashMap, hash_map},
     fmt::Debug,
@@ -19,7 +23,9 @@ use crate::agent::Agent;
 
 /// The main orchestration structure
 pub struct DAGWorkflow {
+    /// The workflow name
     pub name: String,
+    /// The workflow description
     pub description: String,
     /// Store all registered agents
     agents: DashMap<String, Arc<dyn Agent>>,
@@ -701,6 +707,8 @@ pub struct AgentNode {
     pub last_result: Mutex<Option<Result<String, GraphWorkflowError>>>,
 }
 
+/// Error type for the graph workflow
+#[allow(missing_docs)]
 #[derive(Clone, Debug, Error)]
 pub enum GraphWorkflowError {
     #[error("Agent Error: {0}")]

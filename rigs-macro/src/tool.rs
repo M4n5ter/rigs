@@ -392,9 +392,11 @@ pub fn tool_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let expanded = quote! {
+        #[allow(missing_docs)]
         #[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
         pub struct #struct_name;
 
+        #[allow(missing_docs)]
         #[derive(Debug, serde::Deserialize, serde::Serialize, schemars::JsonSchema)]
         pub struct #args_struct_name {
             #(#arg_names: #arg_types),*
@@ -414,6 +416,7 @@ pub fn tool_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
             #call_impl
         }
 
+        #[allow(missing_docs)]
         pub static #static_name: #struct_name = #struct_name;
     };
 

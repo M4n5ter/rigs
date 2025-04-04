@@ -1,3 +1,7 @@
+//! Team workflow implementation
+//!
+#![deny(missing_docs)]
+
 use std::{
     fmt::{Display, Formatter},
     sync::Arc,
@@ -18,6 +22,7 @@ use crate::{
 };
 
 /// Error type for TeamWorkflow operations
+#[allow(missing_docs)]
 #[derive(Debug, Error)]
 pub enum TeamWorkflowError {
     #[error("Model not found: {0}")]
@@ -77,6 +82,7 @@ impl TeamWorkflow {
         }
     }
 
+    /// Get the workflow's dot format string
     pub fn get_workflow_dot(&self) -> String {
         self.workflow.export_workflow_dot()
     }
