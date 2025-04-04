@@ -148,11 +148,11 @@ impl Conversation {
                 let (role, content) = line.split_once(": ").unwrap();
                 if role.contains("(User)") {
                     let role = Role::User(role.replace("(User)", "").to_string());
-                    let content = Content::Text(content.to_string());
+                    let content = Content::Text(content.to_owned());
                     Message { role, content }
                 } else {
                     let role = Role::Assistant(role.replace("(Assistant)", "").to_string());
-                    let content = Content::Text(content.to_string());
+                    let content = Content::Text(content.to_owned());
                     Message { role, content }
                 }
             })
@@ -210,8 +210,8 @@ impl Display for Conversation {
 impl Display for Role {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Role::User(name) => write!(f, "{}(User)", name),
-            Role::Assistant(name) => write!(f, "{}(Assistant)", name),
+            Role::User(name) => write!(f, "{name}(User)"),
+            Role::Assistant(name) => write!(f, "{name}(Assistant)"),
         }
     }
 }

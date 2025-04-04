@@ -1,20 +1,23 @@
+use std::collections::HashSet;
+use std::fmt::Debug;
+
 use futures::future::BoxFuture;
 use rig::{completion::PromptError, vector_store::VectorStoreError};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use thiserror::Error;
 
 use crate::persistence::PersistenceError;
 
+/// An autonomous agent that can complete tasks.
 pub trait Agent {
     /// Runs the autonomous agent loop to complete the given task.
-    fn run(&self, task: String) -> BoxFuture<Result<String, AgentError>>;
+    fn run(&self, task: String) -> BoxFuture<'_, Result<String, AgentError>>;
 
     /// Run multiple tasks concurrently
     fn run_multiple_tasks(
         &mut self,
         tasks: Vec<String>,
-    ) -> BoxFuture<Result<Vec<String>, AgentError>>;
+    ) -> BoxFuture<'_, Result<Vec<String>, AgentError>>;
 
     /// Get agent ID
     fn id(&self) -> String;
@@ -26,32 +29,46 @@ pub trait Agent {
     fn description(&self) -> String;
 }
 
+/// An error that can occur when running an agent.
 #[derive(Debug, Error)]
 pub enum AgentError {
+    /// IO error.
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
+    /// Prompt error.
     #[error("Agent prompt error: {0}")]
     PromptError(#[from] PromptError),
+    /// Vector store error.
     #[error("Vector store error: {0}")]
     VectorStoreError(#[from] VectorStoreError),
+    /// JSON error.
     #[error("JSON error, detail: {detail}, source: {source}")]
     JsonError {
+        /// The detail of the error.
         detail: String,
+        /// The source of the error.
         #[source]
         source: serde_json::Error,
     },
+    /// Persistence error.
     #[error("Persistence error, detail: {detail}, source: {source}")]
     PersistenceError {
+        /// The detail of the error.
         detail: String,
+        /// The source of the error.
         #[source]
         source: PersistenceError,
     },
+    /// Build agent error.
     #[error("Failed to build agent: {0}")]
     BuildError(String),
+    /// LLM provider error.
     #[error("LLM provider error: {0}")]
     LLMProviderError(#[from] crate::llm_provider::LLMProviderError),
+    /// Agent builder not initialized.
     #[error("Agent builder not initialized, maybe you forgot to call `provider(..)`?")]
     AgentBuilderNotInitialized,
+    /// Test error.
     #[cfg(test)]
     #[error("Test error: {0}")]
     TestError(String),

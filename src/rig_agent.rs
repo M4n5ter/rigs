@@ -281,74 +281,68 @@ where
         }
     }
 
-    fn plan(&self, task: String) -> BoxFuture<Result<(), AgentError>> {
-        Box::pin(async move {
-            if let Some(planning_prompt) = &self.config.planning_prompt {
-                let planning_prompt = format!("{} {}", planning_prompt, task);
-                let plan = self.agent.prompt(planning_prompt).await?;
-                tracing::debug!("Plan: {}", plan);
-                // Add plan to memory
-                self.short_memory.add(
-                    task,
-                    self.config.name.clone(),
-                    Role::Assistant(self.config.name.clone()),
-                    plan,
-                );
-            };
-            Ok(())
-        })
+    async fn plan(&self, task: String) -> Result<(), AgentError> {
+        if let Some(planning_prompt) = &self.config.planning_prompt {
+            let planning_prompt = format!("{planning_prompt} {task}");
+            let plan = self.agent.prompt(planning_prompt).await?;
+            tracing::debug!("Plan: {}", plan);
+            // Add plan to memory
+            self.short_memory.add(
+                task,
+                self.config.name.clone(),
+                Role::Assistant(self.config.name.clone()),
+                plan,
+            );
+        };
+        Ok(())
     }
 
-    fn query_long_term_memory(&self, task: String) -> BoxFuture<Result<(), AgentError>> {
-        Box::pin(async move {
-            if let Some(long_term_memory) = &self.long_term_memory {
-                let (_score, _id, memory_retrieval) = &long_term_memory.top_n(&task, 1).await?[0];
-                let memory_retrieval = format!("Documents Available: {memory_retrieval}");
-                self.short_memory.add(
-                    task,
-                    &self.config.name,
-                    Role::Assistant("[RAG] Database".to_owned()),
-                    memory_retrieval,
-                );
-            }
+    async fn query_long_term_memory(&self, task: String) -> Result<(), AgentError> {
+        if let Some(long_term_memory) = &self.long_term_memory {
+            let (_score, _id, memory_retrieval) = &long_term_memory.top_n(&task, 1).await?[0];
+            let memory_retrieval = format!("Documents Available: {memory_retrieval}");
+            self.short_memory.add(
+                task,
+                &self.config.name,
+                Role::Assistant("[RAG] Database".to_owned()),
+                memory_retrieval,
+            );
+        }
 
-            Ok(())
-        })
+        Ok(())
     }
 
     /// Save the agent state to a file
-    fn save_task_state(&self, task: String) -> BoxFuture<Result<(), AgentError>> {
+    async fn save_task_state(&self, task: String) -> Result<(), AgentError> {
         let mut hasher = XxHash3_64::default();
         task.hash(&mut hasher);
         let task_hash = hasher.finish();
         let task_hash = format!("{:x}", task_hash & 0xFFFFFFFF); // lower 32 bits of the hash
 
-        Box::pin(async move {
-            let save_state_path = self.config.save_state_dir.clone();
-            if let Some(save_state_path) = save_state_path {
-                let save_state_path = Path::new(&save_state_path);
-                if !save_state_path.exists() {
-                    tokio::fs::create_dir_all(save_state_path).await?;
-                }
+        let save_state_path = self.config.save_state_dir.clone();
+        if let Some(save_state_path) = save_state_path {
+            let save_state_path = Path::new(&save_state_path);
+            if !save_state_path.exists() {
+                tokio::fs::create_dir_all(save_state_path).await?;
+            }
 
-                let path = save_state_path
-                    .join(format!("{}_{}", self.name(), task_hash))
-                    .with_extension("json");
+            let path = save_state_path
+                .join(format!("{}_{}", self.name(), task_hash))
+                .with_extension("json");
 
-                let json = serde_json::to_string_pretty(&self.short_memory.0.get(&task).unwrap())
+            let json = serde_json::to_string_pretty(&self.short_memory.0.get(&task).unwrap())
                     .map_err(|e| AgentError::JsonError {
                     detail: "Failed to serialize short memory to JSON string when saving agent's task state".into(),
                     source: e,
                 })?; // TODO: Safety?
-                persistence::save_to_file(&json, path).await.map_err(|e| {
-                    AgentError::PersistenceError {
-                        detail: "Failed to save agent's task state to file".into(),
-                        source: e,
-                    }
-                })?;
-            }
-            Ok(())
-        })
+            persistence::save_to_file(&json, path).await.map_err(|e| {
+                AgentError::PersistenceError {
+                    detail: "Failed to save agent's task state to file".into(),
+                    source: e,
+                }
+            })?;
+        }
+        Ok(())
     }
 
     fn is_response_complete(&self, response: String) -> bool {
@@ -363,7 +357,7 @@ impl<M> Agent for RigAgent<M>
 where
     M: rig::completion::CompletionModel,
 {
-    fn run(&self, task: String) -> BoxFuture<Result<String, AgentError>> {
+    fn run(&self, task: String) -> BoxFuture<'_, Result<String, AgentError>> {
         Box::pin(async move {
             // Add task to memory
             self.short_memory.add(
@@ -478,7 +472,7 @@ where
     fn run_multiple_tasks(
         &mut self,
         tasks: Vec<String>,
-    ) -> BoxFuture<Result<Vec<String>, AgentError>> {
+    ) -> BoxFuture<'_, Result<Vec<String>, AgentError>> {
         let agent_name = self.name();
         let mut results = Vec::with_capacity(tasks.len());
 

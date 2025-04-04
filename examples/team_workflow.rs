@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 // This example demonstrates how to use the TeamWorkflow system
 // to orchestrate a team of agents led by a leader agent
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenv::dotenv().ok();
@@ -28,9 +27,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         "reasoning",
         reasoning_model,
         ModelDescription {
-            name: "reasoning".to_string(),
-            description: "A model optimized for reasoning and planning".to_string(),
-            capabilities: vec!["reasoning".to_string(), "planning".to_string()],
+            name: "reasoning".to_owned(),
+            description: "A model optimized for reasoning and planning".to_owned(),
+            capabilities: vec!["reasoning".to_owned(), "planning".to_owned()],
             context_window: 16000,
             max_tokens: 4000,
         },
@@ -39,9 +38,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         "chat",
         chat_model,
         ModelDescription {
-            name: "chat".to_string(),
-            description: "A model optimized for chat interactions".to_string(),
-            capabilities: vec!["chat".to_string(), "conversational".to_string()],
+            name: "chat".to_owned(),
+            description: "A model optimized for chat interactions".to_owned(),
+            capabilities: vec!["chat".to_owned(), "conversational".to_owned()],
             context_window: 16000,
             max_tokens: 4000,
         },

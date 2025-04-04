@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, hash_map},
+    fmt::Debug,
     sync::Arc,
     time::Duration,
 };
@@ -65,30 +66,28 @@ impl DAGWorkflow {
         // Ensure both agents exist
         if !self.agents.contains_key(from) {
             return Err(GraphWorkflowError::AgentNotFound(format!(
-                "Source agent '{}' not found",
-                from
+                "Source agent '{from}' not found",
             )));
         }
         if !self.agents.contains_key(to) {
             return Err(GraphWorkflowError::AgentNotFound(format!(
-                "Target agent '{}' not found",
-                to
+                "Target agent '{to}' not found",
             )));
         }
 
         // Get node indices, creating nodes if necessary
-        let from_entry = self.name_to_node.entry(from.to_string());
+        let from_entry = self.name_to_node.entry(from.to_owned());
         let from_idx = *from_entry.or_insert_with(|| {
             self.workflow.add_node(AgentNode {
-                name: from.to_string(),
+                name: from.to_owned(),
                 last_result: Mutex::new(None),
             })
         });
 
-        let to_entry = self.name_to_node.entry(to.to_string());
+        let to_entry = self.name_to_node.entry(to.to_owned());
         let to_idx = *to_entry.or_insert_with(|| {
             self.workflow.add_node(AgentNode {
-                name: to.to_string(),
+                name: to.to_owned(),
                 last_result: Mutex::new(None),
             })
         });
@@ -146,10 +145,10 @@ impl DAGWorkflow {
     /// Remove an agent connection
     pub fn disconnect_agents(&mut self, from: &str, to: &str) -> Result<(), GraphWorkflowError> {
         let from_idx = self.name_to_node.get(from).ok_or_else(|| {
-            GraphWorkflowError::AgentNotFound(format!("Source agent '{}' not found", from))
+            GraphWorkflowError::AgentNotFound(format!("Source agent '{from}' not found"))
         })?;
         let to_idx = self.name_to_node.get(to).ok_or_else(|| {
-            GraphWorkflowError::AgentNotFound(format!("Target agent '{}' not found", to))
+            GraphWorkflowError::AgentNotFound(format!("Target agent '{to}' not found"))
         })?;
 
         // Find and remove the edge
@@ -158,8 +157,7 @@ impl DAGWorkflow {
             Ok(())
         } else {
             Err(GraphWorkflowError::AgentNotFound(format!(
-                "No connection from '{}' to '{}'",
-                from, to
+                "No connection from '{from}' to '{to}'"
             )))
         }
     }
@@ -172,8 +170,7 @@ impl DAGWorkflow {
             Ok(())
         } else {
             Err(GraphWorkflowError::AgentNotFound(format!(
-                "Agent '{}' not found",
-                name
+                "Agent '{name}' not found"
             )))
         }
     }
@@ -191,8 +188,7 @@ impl DAGWorkflow {
                 .map_err(|e| GraphWorkflowError::AgentError(e.to_string()))
         } else {
             Err(GraphWorkflowError::AgentNotFound(format!(
-                "Agent '{}' not found",
-                name
+                "Agent '{name}' not found"
             )))
         }
     }
@@ -222,8 +218,7 @@ impl DAGWorkflow {
                     .get(*agent)
                     .ok_or_else(|| {
                         GraphWorkflowError::AgentNotFound(format!(
-                            "Start agent '{}' not found",
-                            agent
+                            "Start agent '{agent}' not found"
                         ))
                     })
                     .copied()
@@ -251,8 +246,8 @@ impl DAGWorkflow {
                 start_idx,
                 input.clone(),
                 Arc::clone(&results),
-                edge_tracker.clone(),
-                processed_nodes.clone(),
+                Arc::clone(&edge_tracker),
+                Arc::clone(&processed_nodes),
             );
             tasks.push(task);
         }
@@ -276,9 +271,7 @@ impl DAGWorkflow {
         let agent_name = &self
             .workflow
             .node_weight(node_idx)
-            .ok_or_else(|| {
-                GraphWorkflowError::AgentNotFound("Node not found in graph".to_string())
-            })?
+            .ok_or_else(|| GraphWorkflowError::AgentNotFound("Node not found in graph".to_owned()))?
             .name;
 
         // Check if we already have a result for this node (avoid duplicate work)
@@ -454,7 +447,7 @@ impl DAGWorkflow {
                                                 .node_weight(*source_idx)
                                                 .unwrap()
                                                 .name;
-                                            format!("[From {}] {}", source_name, input)
+                                            format!("[From {source_name}] {input}")
                                         })
                                         .collect::<Vec<_>>();
 
@@ -517,7 +510,7 @@ impl DAGWorkflow {
                     if let Some(target) = self.workflow.node_weight(edge.target()) {
                         // TODO: can add more edge metadata here if needed
                         let edge_label = if edge.weight().transform.is_some() {
-                            Some("transform".to_string())
+                            Some("transform".to_owned())
                         } else {
                             None
                         };
@@ -581,8 +574,7 @@ impl DAGWorkflow {
                     .get(*agent)
                     .ok_or_else(|| {
                         GraphWorkflowError::AgentNotFound(format!(
-                            "Start agent '{}' not found",
-                            agent
+                            "Start agent '{agent}' not found"
                         ))
                     })
                     .copied()
@@ -727,6 +719,15 @@ pub enum GraphWorkflowError {
     Canceled,
 }
 
+impl Debug for Flow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Flow")
+            .field("transform", &self.transform.is_some())
+            .field("condition", &self.condition.is_some())
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -737,6 +738,7 @@ mod tests {
     use crate::agent::AgentError;
 
     mock! {
+        #[derive(Debug)]
         pub Agent{}
 
         impl Agent for Agent {
@@ -761,16 +763,16 @@ mod tests {
     fn create_mock_agent(id: &str, name: &str, desc: &str, response: &str) -> Arc<MockAgent> {
         let mut agent = MockAgent::new();
 
-        let id_str = id.to_string();
+        let id_str = id.to_owned();
         agent.expect_id().return_const(id_str);
 
-        let name_str = name.to_string();
+        let name_str = name.to_owned();
         agent.expect_name().return_const(name_str);
 
-        let desc_str = desc.to_string();
+        let desc_str = desc.to_owned();
         agent.expect_description().return_const(desc_str);
 
-        let response_str = response.to_string();
+        let response_str = response.to_owned();
         let response_str_clone = response_str.clone();
         agent.expect_run().returning(move |_| {
             let res = response_str_clone.clone();
@@ -789,17 +791,17 @@ mod tests {
     fn create_failing_agent(id: &str, name: &str, error_msg: &str) -> Arc<MockAgent> {
         let mut agent = MockAgent::new();
 
-        let id_str = id.to_string();
+        let id_str = id.to_owned();
         agent.expect_id().return_const(id_str);
 
-        let name_str = name.to_string();
+        let name_str = name.to_owned();
         agent.expect_name().return_const(name_str);
 
         agent
             .expect_description()
-            .return_const("Failing agent".to_string());
+            .return_const("Failing agent".to_owned());
 
-        let error_str = error_msg.to_string();
+        let error_str = error_msg.to_owned();
         let error_str_for_run = error_str.clone();
         agent.expect_run().returning(move |_| {
             let err = AgentError::TestError(error_str_for_run.clone());
@@ -968,7 +970,7 @@ mod tests {
         let mut workflow = DAGWorkflow::new("test", "Test workflow");
         workflow.register_agent(create_mock_agent("1", "agent1", "Test agent", "response1"));
 
-        let result = workflow.execute_agent("agent1", "input".to_string()).await;
+        let result = workflow.execute_agent("agent1", "input".to_owned()).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "response1");
     }
@@ -978,7 +980,7 @@ mod tests {
         let mut workflow = DAGWorkflow::new("test", "Test workflow");
         workflow.register_agent(create_failing_agent("1", "agent1", "test error"));
 
-        let result = workflow.execute_agent("agent1", "input".to_string()).await;
+        let result = workflow.execute_agent("agent1", "input".to_owned()).await;
         assert!(matches!(result, Err(GraphWorkflowError::AgentError(_))));
     }
 
@@ -987,7 +989,7 @@ mod tests {
         let workflow = DAGWorkflow::new("test", "Test workflow");
 
         let result = workflow
-            .execute_agent("nonexistent", "input".to_string())
+            .execute_agent("nonexistent", "input".to_owned())
             .await;
         assert!(matches!(result, Err(GraphWorkflowError::AgentNotFound(_))));
     }
@@ -1066,7 +1068,7 @@ mod tests {
             "response2",
         ));
 
-        let transform_fn = Arc::new(|input: String| format!("transformed: {}", input));
+        let transform_fn = Arc::new(|input: String| format!("transformed: {input}"));
         let flow = Flow {
             transform: Some(transform_fn),
             condition: None,
@@ -1084,7 +1086,7 @@ mod tests {
         let agent1_connections = &structure["agent1"];
         assert_eq!(agent1_connections.len(), 1);
         assert_eq!(agent1_connections[0].0, "agent2");
-        assert_eq!(agent1_connections[0].1, Some("transform".to_string()));
+        assert_eq!(agent1_connections[0].1, Some("transform".to_owned()));
     }
 
     #[tokio::test]
@@ -1194,10 +1196,10 @@ mod tests {
         let agent_c = create_mock_agent("3", "C", "C", "C_result");
         let agent_d = create_mock_agent("4", "D", "D", "D_result");
 
-        workflow.register_agent(agent_a.clone());
-        workflow.register_agent(agent_b.clone());
-        workflow.register_agent(agent_c.clone());
-        workflow.register_agent(agent_d.clone());
+        workflow.register_agent(agent_a);
+        workflow.register_agent(agent_b);
+        workflow.register_agent(agent_c);
+        workflow.register_agent(agent_d);
 
         workflow.connect_agents("A", "C", Flow::default()).unwrap();
         workflow.connect_agents("B", "D", Flow::default()).unwrap();
@@ -1222,9 +1224,9 @@ mod tests {
         let agent_b = create_mock_agent("2", "B", "B", "B_result");
         let agent_c = create_mock_agent("3", "C", "C", "C_result");
 
-        workflow.register_agent(agent_a.clone());
-        workflow.register_agent(agent_b.clone());
-        workflow.register_agent(agent_c.clone());
+        workflow.register_agent(agent_a);
+        workflow.register_agent(agent_b);
+        workflow.register_agent(agent_c);
 
         workflow.connect_agents("A", "C", Flow::default()).unwrap();
         workflow.connect_agents("B", "C", Flow::default()).unwrap();
@@ -1265,9 +1267,9 @@ mod tests {
         let agent_b = create_mock_agent("2", "B", "B", "B_result");
         let agent_c = create_mock_agent("3", "C", "C", "C_result");
 
-        workflow.register_agent(agent_a.clone());
-        workflow.register_agent(agent_b.clone());
-        workflow.register_agent(agent_c.clone());
+        workflow.register_agent(agent_a);
+        workflow.register_agent(agent_b);
+        workflow.register_agent(agent_c);
 
         let conditional_flow = Flow {
             condition: Some(Arc::new(|output: &str| output.contains("trigger"))),
@@ -1307,10 +1309,10 @@ mod tests {
         // path should be [start, a, c] or [start, b, d]
         let has_path1 = paths
             .iter()
-            .any(|p| p == &vec!["start".to_string(), "a".to_string(), "c".to_string()]);
+            .any(|p| p == &vec!["start".to_owned(), "a".to_owned(), "c".to_owned()]);
         let has_path2 = paths
             .iter()
-            .any(|p| p == &vec!["start".to_string(), "b".to_string(), "d".to_string()]);
+            .any(|p| p == &vec!["start".to_owned(), "b".to_owned(), "d".to_owned()]);
 
         assert!(has_path1);
         assert!(has_path2);
@@ -1353,10 +1355,10 @@ mod tests {
         // path should be [start, a, end] or [start, b, end]
         let has_path1 = paths
             .iter()
-            .any(|p| p == &vec!["start".to_string(), "a".to_string(), "end".to_string()]);
+            .any(|p| p == &vec!["start".to_owned(), "a".to_owned(), "end".to_owned()]);
         let has_path2 = paths
             .iter()
-            .any(|p| p == &vec!["start".to_string(), "b".to_string(), "end".to_string()]);
+            .any(|p| p == &vec!["start".to_owned(), "b".to_owned(), "end".to_owned()]);
 
         assert!(has_path1);
         assert!(has_path2);
@@ -1391,7 +1393,7 @@ mod tests {
 
         workflow.connect_agents("a", "b", Flow::default()).unwrap();
 
-        let transform_fn = Arc::new(|input: String| format!("transformed: {}", input));
+        let transform_fn = Arc::new(|input: String| format!("transformed: {input}"));
         let flow = Flow {
             transform: Some(transform_fn),
             condition: None,
@@ -1408,7 +1410,7 @@ mod tests {
 
         assert_eq!(structure["b"].len(), 1);
         assert_eq!(structure["b"][0].0, "c");
-        assert_eq!(structure["b"][0].1, Some("transform".to_string())); // has transform
+        assert_eq!(structure["b"][0].1, Some("transform".to_owned())); // has transform
 
         assert_eq!(structure["c"].len(), 0); // c is a leaf node
     }
@@ -1436,17 +1438,17 @@ mod tests {
 
         // mock counter agent
         let mut agent = MockAgent::new();
-        let agent_name = "counter".to_string();
+        let agent_name = "counter".to_owned();
         agent.expect_name().return_const(agent_name.clone());
-        agent.expect_id().return_const("1".to_string());
+        agent.expect_id().return_const("1".to_owned());
         agent
             .expect_description()
-            .return_const("Counter Agent".to_string());
+            .return_const("Counter Agent".to_owned());
 
         let mut count = 0;
         agent.expect_run().returning(move |_| {
             count += 1;
-            Box::pin(future::ready(Ok(format!("Called {} times", count))))
+            Box::pin(future::ready(Ok(format!("Called {count} times"))))
         });
 
         agent
@@ -1477,7 +1479,7 @@ mod tests {
 
         // call execute_agent directly (should not use cache)
         let result3 = workflow
-            .execute_agent("counter", "input3".to_string())
+            .execute_agent("counter", "input3".to_owned())
             .await
             .unwrap();
         assert_eq!(result3, "Called 3 times");
@@ -1489,19 +1491,18 @@ mod tests {
 
         // Create a mock agent that records the number of calls
         let mut agent1 = MockAgent::new();
-        agent1.expect_name().return_const("agent1".to_string());
-        agent1.expect_id().return_const("1".to_string());
+        agent1.expect_name().return_const("agent1".to_owned());
+        agent1.expect_id().return_const("1".to_owned());
         agent1
             .expect_description()
-            .return_const("First agent".to_string());
+            .return_const("First agent".to_owned());
 
         // Set a counter to verify that the run method was called only once
         let mut run_count = 0;
         agent1.expect_run().returning(move |input| {
             run_count += 1;
             Box::pin(future::ready(Ok(format!(
-                "response for '{}' (call #{})",
-                input, run_count
+                "response for '{input}' (call #{run_count})"
             ))))
         });
 
@@ -1535,7 +1536,7 @@ mod tests {
         let result1 = workflow
             .execute_node(
                 agent1_idx,
-                "input1".to_string(),
+                "input1".to_owned(),
                 Arc::clone(&results),
                 Arc::clone(&edge_tracker),
                 Arc::clone(&processed_nodes),
@@ -1551,7 +1552,7 @@ mod tests {
         let result2 = workflow
             .execute_node(
                 agent1_idx,
-                "input2".to_string(),
+                "input2".to_owned(),
                 Arc::clone(&results),
                 Arc::clone(&edge_tracker),
                 Arc::clone(&processed_nodes),
@@ -1569,7 +1570,7 @@ mod tests {
         let result3 = workflow
             .execute_node(
                 agent1_idx,
-                "input3".to_string(),
+                "input3".to_owned(),
                 Arc::clone(&results),
                 Arc::clone(&edge_tracker),
                 Arc::clone(&processed_nodes),

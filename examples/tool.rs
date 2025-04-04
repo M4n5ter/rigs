@@ -35,12 +35,12 @@ async fn main() -> Result<()> {
     // The output will be:
     // 5.0
 
-    result = agent.run(format!("{} + 5", result)).await.unwrap();
+    result = agent.run(format!("{result} + 5")).await.unwrap();
     println!("{result}");
     // The output will be:
     // 10.0
 
-    result = agent.run(format!("{} * 5", result)).await.unwrap();
+    result = agent.run(format!("{result} * 5")).await.unwrap();
     println!("{result}");
     // The output will be:
     // 50.0
@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
         Use docker to run a postgres database(newest version, alpine as base), set the network mode to host.
         Then get current system's release.
         Finally, curl something to get the IP address of current machine.
-        ".to_string()
+        ".to_owned()
     )
         .await
         .unwrap();

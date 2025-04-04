@@ -247,7 +247,7 @@ async fn main() -> Result<()> {
     let conditional_flow = Flow {
         // Add a custom transformation function, this will change the output of the previous agent
         // to a new format that will be used as the input of the next agent.
-        transform: Some(Arc::new(|output| format!("Summary request: {}", output))),
+        transform: Some(Arc::new(|output| format!("Summary request: {output}"))),
         // Add a condition, this will only trigger the next agent if the output of the previous agent
         // is longer than 100 characters. If the condition is not met, the workflow will continue
         // to the next agent in the graph. This is useful to avoid expensive computations if the

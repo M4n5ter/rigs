@@ -88,10 +88,12 @@ impl TeamWorkflow {
             .iter()
             .fold(String::new(), |acc, entry| {
                 let (_, desc) = entry.value();
-                format!("{}\n{}", acc, desc)
+                format!("{acc}\n{desc}")
             });
 
-        (format!(r#"
+        (
+            format!(
+                r#"
         ROLE:
         You are an AI Team Leader responsible for designing optimal workflows by orchestrating specialized worker agents. Your decisions directly impact team efficiency and output quality.
 
@@ -124,7 +126,7 @@ impl TeamWorkflow {
 
         MODEL SELECTION GUIDE:
         Available models:
-        {}
+        {available_models}
 
         EXAMPLE WORKFLOW:
         Task: "Analyze market trends and generate investment recommendations"
@@ -147,8 +149,10 @@ impl TeamWorkflow {
         4. output_agents: ["TrendAnalyzer"]
 
         Use the `orchestrate` tool to implement your plan.
-        "#, available_models)
-        .to_string(), Orchestrate)
+        "#
+            ),
+            Orchestrate,
+        )
     }
 
     /// Register a model with the model registry
@@ -175,7 +179,7 @@ impl TeamWorkflow {
                 // So we return an error that the caller needs to handle
                 (model.clone(), desc.clone())
             })
-            .ok_or_else(|| TeamWorkflowError::ModelNotFound(name.to_string()))
+            .ok_or_else(|| TeamWorkflowError::ModelNotFound(name.to_owned()))
     }
 
     /// Set the leader agent
@@ -209,8 +213,7 @@ impl TeamWorkflow {
 
         // First, have the leader analyze the task
         let analysis_task = format!(
-            "Analyze the following task and determine what worker agents are needed, what models they should use, and how they should be orchestrated: {}",
-            task
+            "Analyze the following task and determine what worker agents are needed, what models they should use, and how they should be orchestrated: {task}"
         );
 
         let analysis_result = self
@@ -219,7 +222,7 @@ impl TeamWorkflow {
             .await?;
 
         // Parse the leader's analysis to create worker agents and orchestration
-        let orchestration_plan = self.parse_orchestration_plan(&analysis_result)?;
+        let orchestration_plan = Self::parse_orchestration_plan(&analysis_result)?;
 
         // Create worker agents based on the plan
         self.create_worker_agents(&orchestration_plan).await?;
@@ -251,10 +254,7 @@ impl TeamWorkflow {
     }
 
     /// Parse the leader's analysis into an orchestration plan
-    fn parse_orchestration_plan(
-        &self,
-        analysis: &str,
-    ) -> Result<OrchestrationPlan, TeamWorkflowError> {
+    fn parse_orchestration_plan(analysis: &str) -> Result<OrchestrationPlan, TeamWorkflowError> {
         Ok(serde_json::from_str::<OrchestrationPlan>(analysis)?)
     }
 

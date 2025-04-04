@@ -8,6 +8,48 @@ readme = "README.md"
 keywords = ["rig", "orchestration", "agent"]
 repository = "https://github.com/M4n5ter/rigs"
 
+[lints.clippy]
+clone_on_ref_ptr = "deny"
+str_to_string = "deny"
+needless_for_each = "deny"
+
+dbg_macro = "warn"
+empty_enum = "warn"
+enum_glob_use = "warn"
+exit = "warn"
+filter_map_next = "warn"
+fn_params_excessive_bools = "warn"
+# https://github.com/rust-lang/rust/issues/131154
+# if_let_mutex = "warn"
+imprecise_flops = "warn"
+inefficient_to_string = "warn"
+linkedlist = "warn"
+lossy_float_literal = "warn"
+macro_use_imports = "warn"
+match_on_vec_items = "warn"
+match_wildcard_for_single_variants = "warn"
+mem_forget = "warn"
+needless_collect = "warn"
+needless_continue = "warn"
+option_option = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+suboptimal_flops = "warn"
+todo = "warn"
+uninlined_format_args = "warn"
+unnested_or_patterns = "warn"
+unused_self = "warn"
+verbose_file_reads = "warn"
+
+[lints.rust]
+unsafe_code = "deny"
+
+rust-2018-idioms = { level = "warn", priority = -1 }
+rust-2021-compatibility = { level = "warn", priority = -1 }
+rust-2024-compatibility = { level = "warn", priority = -1 }
+# it can be noisy
+# missing_docs = "warn"
+unreachable_pub = "warn"
+
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] } # A library for date and time
 dashmap = { version = "6.1", features = ["serde"] } # A concurrent hashmap
